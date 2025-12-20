@@ -2,6 +2,9 @@
 
 A collection of handy ComfyUI nodes for image manipulation, retro effects, AI integration, and more.
 
+<img width="1465" height="834" alt="image" src="https://github.com/user-attachments/assets/890432fb-a03c-4c86-adfe-b19365d298b3" />
+
+
 ## 🌟 Featured Nodes
 
 ### 🎨 Retro Color & Pixel Art (NEW!)
