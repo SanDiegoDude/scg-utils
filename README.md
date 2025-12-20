@@ -10,7 +10,7 @@ A collection of handy ComfyUI nodes for image manipulation, retro effects, AI in
 ### 🎨 Retro Color & Pixel Art (NEW!)
 
 **SCG Color Palette Transformer** - Advanced retro color transformation
-- 18 color modes: Game consoles, PC graphics (CGA/EGA/VGA), and bit depth modes
+- 24 color modes: Game consoles, PC graphics (CGA/EGA/VGA), and bit depth modes
 - 9 dithering algorithms (Floyd-Steinberg, Atkinson, JJN, Stucki, Burkes, Sierra, Ordered Bayer)
 - Pixelation effect for pixel art creation (block size 1-32)
 - Two scaling modes: rescale by megapixels or resize by short side
@@ -133,9 +133,15 @@ Megapixels: 2.0
 - Monochrome (2 colors)
 - 4 Colors (2-bit)
 - 8 Colors (3-bit)
-- 4096 Colors (12-bit)
-- 32768 Colors (15-bit)
-- 65536 Colors (16-bit)
+- 16 Colors (4-bit palette)
+- 64 Colors (6-bit palette)
+- 256 Colors (8-bit palette)
+- 512 Colors (9-bit, 3-bit per channel)
+- 4096 Colors (12-bit, 4-bit per channel)
+- 32768 Colors (15-bit, 5-bit per channel)
+- 65536 Colors (16-bit, 5-6-5)
+- 262,144 Colors (18-bit, 6-bit per channel)
+- 16.7M Colors (24-bit, 8-bit per channel, true color)
 
 ## 🎨 Features Highlights
 

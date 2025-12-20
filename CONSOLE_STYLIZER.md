@@ -20,17 +20,19 @@ The **SCG Console Stylizer** is a simplified, focused version of the Color Palet
 
 Each console comes with authentic settings automatically applied:
 
-| Console | Resolution | Colors | Dithering | Scaling Method |
-|---------|------------|--------|-----------|----------------|
-| **Atari 2600** | 160 lines | 4 colors | None (clean pixels) | Nearest |
-| **NES - Famicom** | 240p | 25 colors | None (clean pixels) | Nearest |
-| **Sega Master System** | 192p | 32 colors | None (clean pixels) | Nearest |
-| **Game Boy** | 144p | 4 shades | Ordered (Bayer 4x4) | Nearest |
-| **TurboGrafx-16** | 224p | 482 colors | Floyd-Steinberg | Area |
-| **Genesis - Mega Drive** | 224p | 61 colors | Ordered (Bayer 4x4) | Nearest |
-| **SNES** | 224p | 256 colors | Floyd-Steinberg | Lanczos |
-| **Game Boy Color** | 144p | 56 colors | Floyd-Steinberg | Nearest |
-| **PlayStation** | 240p | 256 colors | Floyd-Steinberg | Bilinear |
+| Console | Resolution | Colors | Tile Size | Palettes × Colors | Dithering | Scaling |
+|---------|------------|--------|-----------|-------------------|-----------|---------|
+| **Atari 2600** | 160 lines | 4 | 8×8 | 1×4 | None | Nearest |
+| **NES - Famicom** | 240p | 25 | **16×16** | 4×4 | None | Nearest |
+| **Sega Master System** | 192p | 32 | 8×8 | 2×16 | None | Nearest |
+| **Game Boy** | 144p | 4 | 8×8 | 1×4 | Ordered | Nearest |
+| **TurboGrafx-16** | 224p | 482 | 8×8 | 16×16 | F-S | Area |
+| **Genesis - Mega Drive** | 224p | 61 | 8×8 | 4×15 | Ordered | Nearest |
+| **SNES** | 224p | 256 | 8×8 | 8×16 | F-S | Lanczos |
+| **Game Boy Color** | 144p | 56 | 8×8 | 8×4 | F-S | Nearest |
+| **PlayStation** | 240p | 256 | N/A | 1×256 | F-S | Bilinear |
+
+**Note:** "Palettes × Colors" shows number of available palettes and colors per palette (e.g., NES has 4 palettes with 4 colors each)
 
 ### ⚙️ Toggleable Features
 
@@ -49,6 +51,7 @@ Each console comes with authentic settings automatically applied:
 - **console**: Target console platform (dropdown)
 - **enable_scaling**: Scale to console resolution (boolean)
 - **enable_dithering**: Apply console-appropriate dithering (boolean)
+- **enable_tile_palettes**: Apply tile-based palette restrictions (boolean, NEW!)
 - **enable_pixelation**: Apply pixel confinement effect (boolean)
 - **block_size**: Size of pixel blocks for pixelation (1-32 integer)
 - **enable_scanlines**: Add CRT scanlines effect (boolean)
@@ -102,9 +105,9 @@ Console: TurboGrafx-16
 Enable Scaling: False
 Enable Dithering: False
 Enable Scanlines: False
-Scanline Intensity: 0.5
+Scanline Intensity: 0.15
 ```
-**Result**: Only apply the 482-color TurboGrafx palette, keep original resolution and no effects
+**Result**: Only apply the 256-color TurboGrafx palette, keep original resolution and no effects
 
 ## Console-Specific Details
 
@@ -117,9 +120,8 @@ Scanline Intensity: 0.5
 ### NES - Famicom (1983/1985)
 - **240p** (NTSC standard)
 - **25 colors** on-screen
-- **No dithering by default** (NES had no hardware dithering; some games used manual dither patterns in art)
+- **No dithering by default** (NES had no hardware dithering)
 - **Nearest scaling** for pixel-perfect look
-- **Note**: Enable dithering manually if you want smooth gradients (non-authentic but artistic)
 
 ### Sega Master System (1985)
 - **192p** resolution
@@ -135,9 +137,10 @@ Scanline Intensity: 0.5
 
 ### TurboGrafx-16 / PC Engine (1987/1989)
 - **224p** resolution
-- **482 colors** (most colorful 16-bit console!)
+- **256 colors** (subset of 512-color 9-bit palette, limited from 482 for PIL compatibility)
 - **Floyd-Steinberg dithering** for smooth gradients
 - **Area scaling** for better downscaling quality
+- **Note**: TurboGrafx could display 482 colors, but we use a well-distributed 256-color subset due to PIL's 256-color limit
 
 ### Genesis - Mega Drive (1988/1989)
 - **224p** resolution
@@ -209,9 +212,20 @@ Enable Dithering: False
 Enable Pixelation: True
 Block Size: 4
 Enable Scanlines: False
-Scanline Intensity: 0.5
+Scanline Intensity: 0.15
 ```
 **Result**: Perfect for converting photos to pixel art with console-accurate palettes!
+
+### Authentic NES Look
+```
+Console: NES - Famicom
+Enable Scaling: True
+Enable Dithering: False
+Enable Pixelation: False
+Enable Scanlines: True
+Scanline Intensity: 0.15
+```
+**Result**: Authentic NES look with correct colors and CRT effect!
 
 ## Processing Order
 

@@ -60,9 +60,15 @@ class SCGColorPaletteTransformer:
                     "Monochrome (2 colors)",
                     "4 Colors (2-bit)",
                     "8 Colors (3-bit)",
-                    "4096 Colors (12-bit)",
-                    "32768 Colors (15-bit)",
-                    "65536 Colors (16-bit)",
+                    "16 Colors (4-bit palette)",
+                    "64 Colors (6-bit palette)",
+                    "256 Colors (8-bit palette)",
+                    "512 Colors (9-bit palette)",
+                    "4096 Colors (12-bit, 4-bit per channel)",
+                    "32768 Colors (15-bit, 5-bit per channel)",
+                    "65536 Colors (16-bit, 5-6-5)",
+                    "262144 Colors (18-bit, 6-bit per channel)",
+                    "16777216 Colors (24-bit, 8-bit per channel)",
                     # Computer Graphics
                     "CGA (16 colors)",
                     "EGA (64 colors)",
@@ -121,7 +127,7 @@ class SCGColorPaletteTransformer:
                     "nearest",
                     "area"
                 ], {
-                    "default": "lanczos"
+                    "default": "nearest"
                 }),
                 "enable_pixelation": ("BOOLEAN", {"default": False}),
                 "block_size": ("INT", {
@@ -132,6 +138,13 @@ class SCGColorPaletteTransformer:
                     "display": "number"
                 }),
                 "scanlines": ("BOOLEAN", {"default": False}),
+                "scanline_intensity": ("FLOAT", {
+                    "default": 0.15,
+                    "min": 0.0,
+                    "max": 1.0,
+                    "step": 0.05,
+                    "display": "slider"
+                }),
             }
         }
     
@@ -156,6 +169,69 @@ class SCGColorPaletteTransformer:
                 for b in range(2):
                     palette.append((r * 255, g * 255, b * 255))
         return palette
+    
+    def generate_16color_palette(self):
+        """Generate 16-color palette (4-bit, better distributed than CGA)"""
+        # Create a balanced 16-color palette with better distribution
+        # Using 4 levels of each primary, mixed to get 16 distinct colors
+        palette = [
+            (0, 0, 0),         # Black
+            (0, 0, 170),       # Blue
+            (0, 170, 0),       # Green
+            (0, 170, 170),     # Cyan
+            (170, 0, 0),       # Red
+            (170, 0, 170),     # Magenta
+            (170, 85, 0),      # Brown
+            (170, 170, 170),   # Light Gray
+            (85, 85, 85),      # Dark Gray
+            (85, 85, 255),     # Light Blue
+            (85, 255, 85),     # Light Green
+            (85, 255, 255),    # Light Cyan
+            (255, 85, 85),     # Light Red
+            (255, 85, 255),    # Light Magenta
+            (255, 255, 85),    # Yellow
+            (255, 255, 255),   # White
+        ]
+        return palette
+    
+    def generate_64color_palette(self):
+        """Generate 64-color palette (6-bit, 2 bits per channel)"""
+        palette = []
+        for r in range(4):
+            for g in range(4):
+                for b in range(4):
+                    palette.append((
+                        int(r * 255 / 3),
+                        int(g * 255 / 3),
+                        int(b * 255 / 3)
+                    ))
+        return palette
+    
+    def generate_256color_palette(self):
+        """Generate 256-color palette (8-bit, web-safe inspired)"""
+        # 216-color cube (6x6x6) + 40 grayscale
+        palette = []
+        # 216 color cube
+        for r in range(6):
+            for g in range(6):
+                for b in range(6):
+                    palette.append((
+                        int(r * 255 / 5),
+                        int(g * 255 / 5),
+                        int(b * 255 / 5)
+                    ))
+        # Add 40 grayscale values
+        for i in range(40):
+            gray = int((i / 39) * 255)
+            palette.append((gray, gray, gray))
+        return palette
+    
+    def generate_512color_palette(self):
+        """Generate 512-color palette (9-bit, 3 bits per channel)"""
+        # PIL can't handle 512 colors, so we'll use bit quantization instead
+        # This function won't be called, but keeping it for reference
+        # Will use bits_per_channel = 3 in the transform logic instead
+        return None
     
     def generate_ega_palette(self):
         """Generate 64-color EGA palette (2 bits per RGB channel)"""
@@ -200,19 +276,22 @@ class SCGColorPaletteTransformer:
         return palette
     
     def generate_turbografx_palette(self):
-        """Generate TurboGrafx-16/PC Engine palette (482 colors on-screen, using 512-color palette)"""
-        # TurboGrafx could display 482 colors (close to full 512-color palette)
-        # 9-bit color: 3 bits per channel
+        """Generate TurboGrafx-16/PC Engine palette (256 colors subset from 512 total)"""
+        # TurboGrafx could display 482 colors, but for PIL compatibility we'll use 256
+        # 9-bit color: 3 bits per channel, well-distributed subset
         palette = []
-        for r in range(8):
-            for g in range(8):
-                for b in range(8):
-                    palette.append((
-                        int(r * 255 / 7),
-                        int(g * 255 / 7),
-                        int(b * 255 / 7)
-                    ))
-        return palette[:482]  # Limit to accurate on-screen count
+        step = 512 / 256
+        for i in range(256):
+            idx = int(i * step)
+            r = (idx >> 6) & 0x7
+            g = (idx >> 3) & 0x7
+            b = idx & 0x7
+            palette.append((
+                int(r * 255 / 7),
+                int(g * 255 / 7),
+                int(b * 255 / 7)
+            ))
+        return palette
     
     def generate_genesis_palette(self):
         """Generate Sega Genesis/Mega Drive palette (61 colors on-screen from 512 total)"""
@@ -662,7 +741,7 @@ class SCGColorPaletteTransformer:
         
         return torch.stack(scaled_images, dim=0)
     
-    def apply_scanlines(self, image, intensity=0.5):
+    def apply_scanlines(self, image, intensity=0.15):
         """Apply CRT-style scanlines effect"""
         batch, height, width, channels = image.shape
         
@@ -721,7 +800,7 @@ class SCGColorPaletteTransformer:
         return image_pixelated
     
     def transform_palette(self, image, color_mode, dithering, enable_scaling, scaling_mode, 
-                         megapixels, resize, scaling_method, enable_pixelation, block_size, scanlines):
+                          megapixels, resize, scaling_method, enable_pixelation, block_size, scanlines, scanline_intensity):
         """Transform image to retro color palette with optional scaling and effects"""
         batch, height, width, channels = image.shape
         
@@ -745,10 +824,19 @@ class SCGColorPaletteTransformer:
         
         if "Monochrome" in color_mode:
             palette = self.generate_monochrome_palette()
-        elif "4 Colors" in color_mode:
+        elif "4 Colors (2-bit)" in color_mode:
             palette = self.generate_4color_palette()
-        elif "8 Colors" in color_mode:
+        elif "8 Colors (3-bit)" in color_mode:
             palette = self.generate_8color_palette()
+        elif "16 Colors (4-bit palette)" in color_mode:
+            palette = self.generate_16color_palette()
+        elif "64 Colors (6-bit palette)" in color_mode:
+            palette = self.generate_64color_palette()
+        elif "256 Colors (8-bit palette)" in color_mode:
+            palette = self.generate_256color_palette()
+        elif "512 Colors (9-bit palette)" in color_mode:
+            # PIL can only handle 256-color palettes, so use bit quantization
+            bits_per_channel = 3  # 3 bits = 8 levels per channel = 512 colors total
         elif "CGA" in color_mode:
             palette = self.CGA_PALETTE
         elif "EGA" in color_mode:
@@ -773,12 +861,16 @@ class SCGColorPaletteTransformer:
             palette = self.generate_gbc_palette()
         elif "PlayStation" in color_mode:
             palette = self.generate_psx_palette()
-        elif "4096" in color_mode:
+        elif "4096" in color_mode or "12-bit" in color_mode:
             bits_per_channel = 4
-        elif "32768" in color_mode:
+        elif "32768" in color_mode or "15-bit" in color_mode:
             bits_per_channel = 5
-        elif "65536" in color_mode:
+        elif "65536" in color_mode or "16-bit" in color_mode:
             bits_per_channel = 5  # 5-6-5 RGB, we'll use 5 for simplicity
+        elif "262144" in color_mode or "18-bit" in color_mode:
+            bits_per_channel = 6
+        elif "16777216" in color_mode or "24-bit" in color_mode:
+            bits_per_channel = 8
         else:
             palette = self.generate_vga_palette()
         
@@ -805,7 +897,7 @@ class SCGColorPaletteTransformer:
         
         # Apply scanlines effect if enabled
         if scanlines:
-            result_batch = self.apply_scanlines(result_batch)
+            result_batch = self.apply_scanlines(result_batch, scanline_intensity)
         
         return (result_batch,)
 

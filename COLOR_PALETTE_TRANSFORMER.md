@@ -9,12 +9,22 @@ The **SCG Color Palette Transformer** node brings vintage computer graphics and 
 ## Features
 
 ### 🎨 Bit Depth Modes
+
+**Fixed Palette Sizes** (evenly distributed colors):
 - **Monochrome (2 colors)**: Pure black and white
 - **4 Colors (2-bit)**: Simple grayscale palette
 - **8 Colors (3-bit)**: Basic RGB color space (1 bit per channel)
-- **4096 Colors (12-bit)**: 4 bits per RGB channel
-- **32768 Colors (15-bit)**: 5 bits per RGB channel (common in many 90s systems)
+- **16 Colors (4-bit palette)**: Evenly distributed 16-color palette
+- **64 Colors (6-bit palette)**: Evenly distributed 64-color palette
+- **256 Colors (8-bit palette)**: Web-safe inspired 256-color palette
+- **512 Colors (9-bit palette)**: 3 bits per channel (8 levels per channel, 512 total colors)
+
+**Per-Channel Bit Reduction**:
+- **4096 Colors (12-bit)**: 4 bits per RGB channel (16 levels per channel)
+- **32768 Colors (15-bit)**: 5 bits per RGB channel (32 levels per channel, common in many 90s systems)
 - **65536 Colors (16-bit)**: 5-6-5 RGB color depth
+- **262,144 Colors (18-bit)**: 6 bits per RGB channel (64 levels per channel)
+- **16.7M Colors (24-bit)**: 8 bits per RGB channel (256 levels per channel, true color)
 
 ### 💻 Computer Graphics Modes
 - **CGA (16 colors)**: IBM Color Graphics Adapter - the iconic 16-color palette from early PC gaming
@@ -72,6 +82,7 @@ Pattern-based dithering:
 
 ### 📺 CRT Scanlines Effect
 - **Optional scanlines overlay**: Adds authentic CRT screen effect
+- **Adjustable intensity**: Control how strong the scanline effect is (0.0-1.0, default 0.15)
 - Darkens every other horizontal line for that classic arcade/TV look
 - Perfect for authentic retro gaming aesthetic
 
@@ -86,10 +97,11 @@ Pattern-based dithering:
 - **scaling_mode**: Choose between "rescale (megapixels)" or "resize (short side)"
 - **megapixels**: Target image size in megapixels (used when scaling_mode is "rescale")
 - **resize**: Short side length in pixels (used when scaling_mode is "resize")
-- **scaling_method**: Interpolation method for resizing
+- **scaling_method**: Interpolation method for resizing (default: **nearest**)
 - **enable_pixelation**: Enable pixel confinement effect for pixel art
 - **block_size**: Size of pixel blocks (1-32, default 1 = no pixelation)
 - **scanlines**: Enable CRT-style scanlines effect
+- **scanline_intensity**: Strength of scanline effect (0.0-1.0, default **0.15**)
 
 ## Usage Tips
 
@@ -246,10 +258,12 @@ Could display **56 colors on-screen** (8 background palettes × 4 colors + 8 spr
 ## Scanlines Effect
 
 The scanlines effect darkens every other horizontal line to simulate CRT displays:
+- **Adjustable intensity**: 0.0 = no effect, 1.0 = completely black lines (default: 0.15)
 - **Arcade/CRT aesthetic**: Essential for authentic retro look
 - **Best with**: Low resolution images (after scaling down)
 - **Works great with**: Console palettes + nearest neighbor scaling
 - **Not recommended**: High-resolution images (scanlines will be too subtle)
+- **Tip**: Use lower intensity (0.15-0.3) for subtle effect, higher (0.5-0.7) for strong CRT look
 
 ## Processing Order
 
