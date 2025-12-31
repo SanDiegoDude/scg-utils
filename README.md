@@ -53,6 +53,9 @@ A collection of handy ComfyUI nodes for image manipulation, retro effects, AI in
 ### Text Processing
 - **SCG Wildcard Variable Processor** - Replace wildcard variables in text strings
 
+### Logic Utilities
+- **SCG Flip Boolean** - Invert boolean values (True → False, False → True)
+
 ## 🚀 Installation
 
 ### Via ComfyUI Manager (Recommended)
@@ -219,3 +222,8 @@ For issues, questions, or feature requests:
 **Made with ❤️ for the ComfyUI community**
 
 YMMV - Your Mileage May Vary! 🚗
+
+
+
+
+

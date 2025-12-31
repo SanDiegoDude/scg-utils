@@ -1669,6 +1669,38 @@ class SCGTrimImageToMask:
         return images_batch, masks_batch, restitch_data
 
 
+class SCGFlipBoolean:
+    """
+    A simple utility node that flips a boolean value.
+    Accepts a boolean input and outputs the inverted boolean.
+    """
+    
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "boolean": ("BOOLEAN", {"default": False}),
+            }
+        }
+    
+    RETURN_TYPES = ("BOOLEAN",)
+    RETURN_NAMES = ("boolean",)
+    FUNCTION = "flip_boolean"
+    CATEGORY = "scg-utils"
+    
+    def flip_boolean(self, boolean):
+        """
+        Flip the input boolean value.
+        
+        Args:
+            boolean: Input boolean value
+        
+        Returns:
+            Tuple containing the flipped boolean
+        """
+        return (not boolean,)
+
+
 class SCGStitchInpaintImage:
     """
     Stitch an inpainted crop (from SCG Trim Image to Mask) back into the original

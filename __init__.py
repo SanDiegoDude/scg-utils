@@ -7,6 +7,7 @@ from .nodes import (
     SCGResolutionSelector,
     SCGTrimImageToMask,
     SCGStitchInpaintImage,
+    SCGFlipBoolean,
 )
 from .nodes_qwen import SCGTextEncoderQwenEditPlus
 from .nodes_remote_llm import SCGRemoteLLMVLM_OAI
@@ -24,6 +25,7 @@ NODE_CLASS_MAPPINGS = {
     "SCGResolutionSelector": SCGResolutionSelector,
     "SCGTrimImageToMask": SCGTrimImageToMask,
     "SCGStitchInpaintImage": SCGStitchInpaintImage,
+    "SCGFlipBoolean": SCGFlipBoolean,
     "SCGRemoteLLMVLM_OAI": SCGRemoteLLMVLM_OAI,
     "RAAG_ModelPatch": RAAG_ModelPatch,
     "SCGColorPaletteTransformer": SCGColorPaletteTransformer,
@@ -40,6 +42,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "SCGResolutionSelector": "SCG Resolution Selector",
     "SCGTrimImageToMask": "scg-utils Trim Image to Mask",
     "SCGStitchInpaintImage": "scg-utils Stitch Inpaint Image",
+    "SCGFlipBoolean": "SCG Flip Boolean",
     "SCGRemoteLLMVLM_OAI": "SCG Remote LLM/VLM - OAI Standard",
     "RAAG_ModelPatch": "RAAG (Ratio Aware Adaptive Guidance)",
     "SCGColorPaletteTransformer": "SCG Color Palette Transformer",
