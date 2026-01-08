@@ -1273,6 +1273,10 @@ class SCGTrimImageToMask:
     cropped, masked image plus the trimmed mask and restitch data. Useful for
     isolating a subject from a segmentation mask before downstream processing
     while keeping enough metadata to stitch the result back later.
+    
+    Supports batched mask input from segmentation nodes like SAM3. When multiple
+    masks are provided (e.g., from detecting multiple objects), they are combined
+    into a single mask using logical OR before processing.
     """
 
     @classmethod
@@ -1409,6 +1413,20 @@ class SCGTrimImageToMask:
         resized = torch.nn.functional.interpolate(masks, size=(target_h, target_w), mode="nearest")
         return resized.squeeze(1)
 
+    def _combine_masks(self, masks):
+        """
+        Combine multiple masks into a single mask using logical OR.
+        
+        Args:
+            masks: Tensor of shape [N, H, W] where N is number of masks
+            
+        Returns:
+            Combined mask of shape [1, H, W]
+        """
+        # Use max across the batch dimension to combine masks (logical OR for binary masks)
+        combined = torch.max(masks, dim=0, keepdim=True)[0]
+        return combined
+
     def trim_image_to_mask(
         self,
         image,
@@ -1432,6 +1450,14 @@ class SCGTrimImageToMask:
             mask = mask.squeeze(-1)
         if mask.dim() == 2:
             mask = mask.unsqueeze(0)
+        
+        # Handle batched masks from segmentation nodes (e.g., SAM3)
+        # If we have multiple masks (N > 1) but only one image, combine masks
+        mask_batch = mask.shape[0]
+        if mask_batch > 1 and batch == 1:
+            print(f"[SCG Trim] Combining {mask_batch} masks into single composite mask")
+            mask = self._combine_masks(mask)
+        
         if mask.shape[0] != batch:
             # Broadcast single mask across batch if needed
             mask = mask.expand(batch, -1, -1)
