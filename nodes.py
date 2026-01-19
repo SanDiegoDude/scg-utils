@@ -1727,6 +1727,57 @@ class SCGFlipBoolean:
         return (not boolean,)
 
 
+class SCGFormatInteger:
+    """
+    A utility node that rounds an integer to a specified divisible value
+    and optionally adds a constant after rounding.
+    
+    Useful for ensuring dimensions are divisible by common values (8, 16, 32, etc.)
+    for model requirements.
+    """
+    
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "value": ("INT", {"default": 0, "min": -2147483648, "max": 2147483647}),
+                "divisible_by": ("INT", {"default": 8, "min": 1, "max": 2147483647}),
+                "add_to_final": ("INT", {"default": 0, "min": -2147483648, "max": 2147483647}),
+                "round_mode": (["round_up", "round_down"], {"default": "round_down"}),
+            }
+        }
+    
+    RETURN_TYPES = ("INT",)
+    RETURN_NAMES = ("int",)
+    FUNCTION = "format_integer"
+    CATEGORY = "scg-utils"
+    
+    def format_integer(self, value, divisible_by, add_to_final, round_mode):
+        """
+        Round an integer to the nearest multiple of divisible_by, then add add_to_final.
+        
+        Args:
+            value: Input integer to format
+            divisible_by: The number the result should be divisible by
+            add_to_final: Value to add after rounding (applied after rounding)
+            round_mode: Whether to round up or down to the nearest divisible
+        
+        Returns:
+            Tuple containing the formatted integer
+        """
+        if round_mode == "round_up":
+            # Round up to next multiple of divisible_by
+            rounded = math.ceil(value / divisible_by) * divisible_by
+        else:
+            # Round down to previous multiple of divisible_by
+            rounded = math.floor(value / divisible_by) * divisible_by
+        
+        # Add the final value after rounding
+        result = rounded + add_to_final
+        
+        return (result,)
+
+
 class SCGStitchInpaintImage:
     """
     Stitch an inpainted crop (from SCG Trim Image to Mask) back into the original

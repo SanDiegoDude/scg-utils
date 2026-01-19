@@ -56,6 +56,9 @@ A collection of handy ComfyUI nodes for image manipulation, retro effects, AI in
 ### Logic Utilities
 - **SCG Flip Boolean** - Invert boolean values (True → False, False → True)
 
+### Number Utilities
+- **SCG Format Integer** - Round integers to divisible values with optional offset
+
 ## 🚀 Installation
 
 ### Via ComfyUI Manager (Recommended)
@@ -112,6 +115,22 @@ Color Mode: 4096 Colors (12-bit)
 Dithering: Atkinson
 Scaling Mode: rescale (megapixels)
 Megapixels: 2.0
+```
+
+### Format Dimension for Model Requirements
+```
+Use: SCG Format Integer
+value: 1000 (input dimension)
+divisible_by: 8
+round_mode: round_down
+add_to_final: 0
+→ Output: 1000 → 1000 (already divisible by 8)
+
+value: 1003
+→ Output: 1000 (rounded down to nearest 8)
+
+value: 1003 with round_up
+→ Output: 1008 (rounded up to nearest 8)
 ```
 
 ## 🎮 Supported Consoles & Systems
