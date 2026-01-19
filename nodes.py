@@ -996,6 +996,7 @@ class SCGScaleToMegapixels:
     A utility node that scales images to a specific megapixel size.
     Maintains aspect ratio while scaling to the target megapixel count.
     Supports multiple interpolation methods for high-quality results.
+    Optionally constrains dimensions to be divisible by a specified value.
     """
     
     @classmethod
@@ -1019,15 +1020,79 @@ class SCGScaleToMegapixels:
                 ], {
                     "default": "lanczos"
                 }),
+                "dimension_constraint": ([
+                    "resize",
+                    "crop",
+                    "none"
+                ], {
+                    "default": "resize"
+                }),
+                "divisible_by": ("INT", {
+                    "default": 8,
+                    "min": 1,
+                    "max": 256,
+                    "step": 1
+                }),
             }
         }
     
-    RETURN_TYPES = ("IMAGE",)
-    RETURN_NAMES = ("image",)
+    RETURN_TYPES = ("IMAGE", "INT", "INT")
+    RETURN_NAMES = ("image", "width", "height")
     FUNCTION = "scale_to_megapixels"
     CATEGORY = "scg-utils"
     
-    def scale_to_megapixels(self, image, megapixels, scaling_method):
+    def _apply_dimension_constraint(self, width, height, divisible_by, constraint_mode, scaling_method, image=None):
+        """
+        Apply dimension constraint (resize or crop) to make dimensions divisible.
+        
+        Args:
+            width: Current width
+            height: Current height
+            divisible_by: Value dimensions should be divisible by
+            constraint_mode: "resize", "crop", or "none"
+            scaling_method: Method to use if resizing
+            image: Image tensor (required for crop/resize operations)
+        
+        Returns:
+            Tuple of (new_width, new_height, modified_image or None)
+        """
+        if constraint_mode == "none" or divisible_by <= 1:
+            return width, height, None
+        
+        # Calculate target dimensions (round down to nearest divisible)
+        target_width = (width // divisible_by) * divisible_by
+        target_height = (height // divisible_by) * divisible_by
+        
+        # Ensure minimum dimensions
+        target_width = max(divisible_by, target_width)
+        target_height = max(divisible_by, target_height)
+        
+        if target_width == width and target_height == height:
+            return width, height, None
+        
+        if constraint_mode == "crop" and image is not None:
+            # Center crop to target dimensions
+            crop_x = (width - target_width) // 2
+            crop_y = (height - target_height) // 2
+            cropped = image[:, crop_y:crop_y + target_height, crop_x:crop_x + target_width, :]
+            return target_width, target_height, cropped
+        elif constraint_mode == "resize" and image is not None:
+            # Resize to target dimensions
+            resized = self._scale_image(image, target_height, target_width, scaling_method)
+            return target_width, target_height, resized
+        
+        return target_width, target_height, None
+    
+    def _scale_image(self, image, new_height, new_width, scaling_method):
+        """Scale image using the specified method."""
+        if scaling_method == "lanczos":
+            return self._scale_with_pil(image, new_height, new_width, Image.LANCZOS)
+        elif scaling_method == "area":
+            return self._scale_with_pil(image, new_height, new_width, Image.BOX)
+        else:
+            return self._scale_with_torch(image, new_height, new_width, scaling_method)
+    
+    def scale_to_megapixels(self, image, megapixels, scaling_method, dimension_constraint, divisible_by):
         """
         Scale image to target megapixel size while maintaining aspect ratio.
         
@@ -1035,9 +1100,11 @@ class SCGScaleToMegapixels:
             image: Input image tensor in ComfyUI format (batch, height, width, channels)
             megapixels: Target size in megapixels (e.g., 1.0 = 1,000,000 pixels)
             scaling_method: Interpolation method to use
+            dimension_constraint: How to handle non-divisible dimensions ("resize", "crop", "none")
+            divisible_by: Value that dimensions should be divisible by
         
         Returns:
-            Tuple containing the scaled image
+            Tuple containing the scaled image, width, and height
         """
         batch, height, width, channels = image.shape
         current_pixels = height * width
@@ -1057,22 +1124,25 @@ class SCGScaleToMegapixels:
         batch_info = f" (batch of {batch} images)" if batch > 1 else ""
         print(f"[SCG Scale to Megapixels] Scaling{batch_info} from {width}x{height} ({current_pixels/1_000_000:.2f}MP) to {new_width}x{new_height} ({(new_width*new_height)/1_000_000:.2f}MP) using {scaling_method}")
         
-        # If dimensions haven't changed, return original
+        # Scale image if dimensions changed
         if new_height == height and new_width == width:
-            return (image,)
-        
-        # Scale using the specified method
-        if scaling_method == "lanczos":
-            # Use PIL for Lanczos as torch doesn't support it directly
-            scaled_image = self._scale_with_pil(image, new_height, new_width, Image.LANCZOS)
-        elif scaling_method == "area":
-            # Use PIL for area resampling (good for downscaling)
-            scaled_image = self._scale_with_pil(image, new_height, new_width, Image.BOX)
+            scaled_image = image
         else:
-            # Use torch for other methods
-            scaled_image = self._scale_with_torch(image, new_height, new_width, scaling_method)
+            scaled_image = self._scale_image(image, new_height, new_width, scaling_method)
         
-        return (scaled_image,)
+        # Apply dimension constraint if needed
+        final_width, final_height, constrained_image = self._apply_dimension_constraint(
+            new_width, new_height, divisible_by, dimension_constraint, scaling_method, scaled_image
+        )
+        
+        if constrained_image is not None:
+            scaled_image = constrained_image
+            if final_width != new_width or final_height != new_height:
+                print(f"[SCG Scale to Megapixels] Applied {dimension_constraint} constraint: {new_width}x{new_height} -> {final_width}x{final_height} (divisible by {divisible_by})")
+        else:
+            final_width, final_height = new_width, new_height
+        
+        return (scaled_image, final_width, final_height)
     
     def _scale_with_torch(self, image, new_height, new_width, method):
         """
@@ -1139,6 +1209,197 @@ class SCGScaleToMegapixels:
         # Stack back into batch
         scaled_batch = torch.stack(scaled_images, dim=0)
         
+        return scaled_batch
+
+
+class SCGScaleDimensionToSize:
+    """
+    A utility node that scales images by targeting a specific dimension size.
+    Can target the shortest side, longest side, width, or height.
+    Maintains aspect ratio while scaling to the target dimension.
+    Supports multiple interpolation methods for high-quality results.
+    Optionally constrains dimensions to be divisible by a specified value.
+    """
+    
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "image": ("IMAGE",),
+                "target_size": ("INT", {
+                    "default": 1024,
+                    "min": 1,
+                    "max": 16384,
+                    "step": 1
+                }),
+                "apply_to": ([
+                    "shortest",
+                    "longest",
+                    "width",
+                    "height"
+                ], {
+                    "default": "shortest"
+                }),
+                "scaling_method": ([
+                    "lanczos",
+                    "bicubic", 
+                    "bilinear",
+                    "nearest",
+                    "area"
+                ], {
+                    "default": "lanczos"
+                }),
+                "dimension_constraint": ([
+                    "resize",
+                    "crop",
+                    "none"
+                ], {
+                    "default": "resize"
+                }),
+                "divisible_by": ("INT", {
+                    "default": 8,
+                    "min": 1,
+                    "max": 256,
+                    "step": 1
+                }),
+            }
+        }
+    
+    RETURN_TYPES = ("IMAGE", "INT", "INT")
+    RETURN_NAMES = ("image", "width", "height")
+    FUNCTION = "scale_to_dimension"
+    CATEGORY = "scg-utils"
+    
+    def _apply_dimension_constraint(self, width, height, divisible_by, constraint_mode, scaling_method, image=None):
+        """
+        Apply dimension constraint (resize or crop) to make dimensions divisible.
+        """
+        if constraint_mode == "none" or divisible_by <= 1:
+            return width, height, None
+        
+        # Calculate target dimensions (round down to nearest divisible)
+        target_width = (width // divisible_by) * divisible_by
+        target_height = (height // divisible_by) * divisible_by
+        
+        # Ensure minimum dimensions
+        target_width = max(divisible_by, target_width)
+        target_height = max(divisible_by, target_height)
+        
+        if target_width == width and target_height == height:
+            return width, height, None
+        
+        if constraint_mode == "crop" and image is not None:
+            # Center crop to target dimensions
+            crop_x = (width - target_width) // 2
+            crop_y = (height - target_height) // 2
+            cropped = image[:, crop_y:crop_y + target_height, crop_x:crop_x + target_width, :]
+            return target_width, target_height, cropped
+        elif constraint_mode == "resize" and image is not None:
+            # Resize to target dimensions
+            resized = self._scale_image(image, target_height, target_width, scaling_method)
+            return target_width, target_height, resized
+        
+        return target_width, target_height, None
+    
+    def _scale_image(self, image, new_height, new_width, scaling_method):
+        """Scale image using the specified method."""
+        if scaling_method == "lanczos":
+            return self._scale_with_pil(image, new_height, new_width, Image.LANCZOS)
+        elif scaling_method == "area":
+            return self._scale_with_pil(image, new_height, new_width, Image.BOX)
+        else:
+            return self._scale_with_torch(image, new_height, new_width, scaling_method)
+    
+    def scale_to_dimension(self, image, target_size, apply_to, scaling_method, dimension_constraint, divisible_by):
+        """
+        Scale image by targeting a specific dimension size.
+        
+        Args:
+            image: Input image tensor in ComfyUI format (batch, height, width, channels)
+            target_size: Target size for the selected dimension
+            apply_to: Which dimension to target ("shortest", "longest", "width", "height")
+            scaling_method: Interpolation method to use
+            dimension_constraint: How to handle non-divisible dimensions ("resize", "crop", "none")
+            divisible_by: Value that dimensions should be divisible by
+        
+        Returns:
+            Tuple containing the scaled image, width, and height
+        """
+        batch, height, width, channels = image.shape
+        
+        # Determine which dimension to use for scaling
+        if apply_to == "shortest":
+            reference_dim = min(width, height)
+        elif apply_to == "longest":
+            reference_dim = max(width, height)
+        elif apply_to == "width":
+            reference_dim = width
+        else:  # height
+            reference_dim = height
+        
+        # Calculate scale factor
+        scale_factor = target_size / reference_dim
+        
+        # Calculate new dimensions
+        new_width = int(width * scale_factor)
+        new_height = int(height * scale_factor)
+        
+        # Ensure dimensions are at least 1
+        new_height = max(1, new_height)
+        new_width = max(1, new_width)
+        
+        batch_info = f" (batch of {batch} images)" if batch > 1 else ""
+        print(f"[SCG Scale Dimension to Size] Scaling{batch_info} from {width}x{height} to {new_width}x{new_height} ({apply_to}={target_size}) using {scaling_method}")
+        
+        # Scale image if dimensions changed
+        if new_height == height and new_width == width:
+            scaled_image = image
+        else:
+            scaled_image = self._scale_image(image, new_height, new_width, scaling_method)
+        
+        # Apply dimension constraint if needed
+        final_width, final_height, constrained_image = self._apply_dimension_constraint(
+            new_width, new_height, divisible_by, dimension_constraint, scaling_method, scaled_image
+        )
+        
+        if constrained_image is not None:
+            scaled_image = constrained_image
+            if final_width != new_width or final_height != new_height:
+                print(f"[SCG Scale Dimension to Size] Applied {dimension_constraint} constraint: {new_width}x{new_height} -> {final_width}x{final_height} (divisible by {divisible_by})")
+        else:
+            final_width, final_height = new_width, new_height
+        
+        return (scaled_image, final_width, final_height)
+    
+    def _scale_with_torch(self, image, new_height, new_width, method):
+        """Scale image using PyTorch interpolation."""
+        image_bchw = image.permute(0, 3, 1, 2)
+        
+        resized_bchw = torch.nn.functional.interpolate(
+            image_bchw,
+            size=(new_height, new_width),
+            mode=method,
+            align_corners=False if method != 'nearest' else None,
+            antialias=True if method in ['bicubic', 'bilinear'] else False
+        )
+        
+        resized = resized_bchw.permute(0, 2, 3, 1)
+        return resized
+    
+    def _scale_with_pil(self, image, new_height, new_width, resample_method):
+        """Scale image using PIL for methods not available in PyTorch."""
+        batch, height, width, channels = image.shape
+        
+        scaled_images = []
+        for i in range(batch):
+            img_np = (image[i].cpu().numpy() * 255).astype(np.uint8)
+            pil_img = Image.fromarray(img_np)
+            pil_img_resized = pil_img.resize((new_width, new_height), resample=resample_method)
+            img_np_resized = np.array(pil_img_resized).astype(np.float32) / 255.0
+            img_tensor = torch.from_numpy(img_np_resized)
+            scaled_images.append(img_tensor)
+        
+        scaled_batch = torch.stack(scaled_images, dim=0)
         return scaled_batch
 
 

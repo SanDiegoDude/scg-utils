@@ -36,7 +36,8 @@ A collection of handy ComfyUI nodes for image manipulation, retro effects, AI in
 - **SCG Zeroed Outputs** - Provides zeroed/empty outputs for placeholder inputs
 - **SCG Image Stack** - Stack up to 4 images in customizable grid layouts
 - **SCG Image Stack XL** - Extended version supporting up to 8 images
-- **SCG Scale to Megapixel Size** - Scale images to specific megapixel targets
+- **SCG Scale to Megapixel Size** - Scale images to specific megapixel targets with dimension constraints
+- **SCG Scale Dimension to Size** - Scale images by targeting shortest/longest/width/height dimension
 
 ### Resolution & Layout
 - **SCG Resolution Selector** - Flexible resolution calculator with aspect ratio presets
@@ -131,6 +132,17 @@ value: 1003
 
 value: 1003 with round_up
 → Output: 1008 (rounded up to nearest 8)
+```
+
+### Scale Image to Target Dimension
+```
+Use: SCG Scale Dimension to Size
+target_size: 1024
+apply_to: shortest (or longest, width, height)
+dimension_constraint: resize
+divisible_by: 8
+→ Scales image so the shortest side is 1024px, 
+  then adjusts both dimensions to be divisible by 8
 ```
 
 ## 🎮 Supported Consoles & Systems
