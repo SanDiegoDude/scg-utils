@@ -2039,6 +2039,115 @@ class SCGFormatInteger:
         return (result,)
 
 
+class SCGEvaluateIntMath:
+    """
+    A utility node that performs comparison operations on two integer values.
+    Returns a boolean result based on the selected comparison operation.
+    """
+    
+    COMPARISON_OPS = [
+        "A Greater Than B",
+        "A Less Than B",
+        "A Equal To B",
+        "A Not Equal To B",
+    ]
+    
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "int_a": ("INT", {"default": 0, "min": -2147483648, "max": 2147483647}),
+                "int_b": ("INT", {"default": 0, "min": -2147483648, "max": 2147483647}),
+                "operation": (cls.COMPARISON_OPS, {"default": "A Greater Than B"}),
+            }
+        }
+    
+    RETURN_TYPES = ("BOOLEAN",)
+    RETURN_NAMES = ("boolean",)
+    FUNCTION = "evaluate"
+    CATEGORY = "scg-utils"
+    
+    def evaluate(self, int_a, int_b, operation):
+        """
+        Perform comparison operation on two integers.
+        
+        Args:
+            int_a: First integer value
+            int_b: Second integer value
+            operation: The comparison operation to perform
+        
+        Returns:
+            Tuple containing the boolean result
+        """
+        if operation == "A Greater Than B":
+            result = int_a > int_b
+        elif operation == "A Less Than B":
+            result = int_a < int_b
+        elif operation == "A Equal To B":
+            result = int_a == int_b
+        elif operation == "A Not Equal To B":
+            result = int_a != int_b
+        else:
+            result = False
+        
+        return (result,)
+
+
+class SCGEvaluateFloatMath:
+    """
+    A utility node that performs comparison operations on two float values.
+    Returns a boolean result based on the selected comparison operation.
+    Supports decimal values including 0.00.
+    """
+    
+    COMPARISON_OPS = [
+        "A Greater Than B",
+        "A Less Than B",
+        "A Equal To B",
+        "A Not Equal To B",
+    ]
+    
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "float_a": ("FLOAT", {"default": 0.0, "min": -3.402823466e+38, "max": 3.402823466e+38, "step": 0.01}),
+                "float_b": ("FLOAT", {"default": 0.0, "min": -3.402823466e+38, "max": 3.402823466e+38, "step": 0.01}),
+                "operation": (cls.COMPARISON_OPS, {"default": "A Greater Than B"}),
+            }
+        }
+    
+    RETURN_TYPES = ("BOOLEAN",)
+    RETURN_NAMES = ("boolean",)
+    FUNCTION = "evaluate"
+    CATEGORY = "scg-utils"
+    
+    def evaluate(self, float_a, float_b, operation):
+        """
+        Perform comparison operation on two floats.
+        
+        Args:
+            float_a: First float value
+            float_b: Second float value
+            operation: The comparison operation to perform
+        
+        Returns:
+            Tuple containing the boolean result
+        """
+        if operation == "A Greater Than B":
+            result = float_a > float_b
+        elif operation == "A Less Than B":
+            result = float_a < float_b
+        elif operation == "A Equal To B":
+            result = float_a == float_b
+        elif operation == "A Not Equal To B":
+            result = float_a != float_b
+        else:
+            result = False
+        
+        return (result,)
+
+
 class SCGStitchInpaintImage:
     """
     Stitch an inpainted crop (from SCG Trim Image to Mask) back into the original

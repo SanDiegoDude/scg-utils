@@ -56,6 +56,8 @@ A collection of handy ComfyUI nodes for image manipulation, retro effects, AI in
 
 ### Logic Utilities
 - **SCG Flip Boolean** - Invert boolean values (True → False, False → True)
+- **SCG Evaluate Int Math** - Compare two integers (>, <, ==, !=) and return boolean
+- **SCG Evaluate Float Math** - Compare two floats (>, <, ==, !=) and return boolean
 
 ### Number Utilities
 - **SCG Format Integer** - Round integers to divisible values with optional offset
@@ -132,6 +134,21 @@ value: 1003
 
 value: 1003 with round_up
 → Output: 1008 (rounded up to nearest 8)
+```
+
+### Compare Values for Conditional Logic
+```
+Use: SCG Evaluate Int Math
+int_a: 10
+int_b: 5
+operation: A Greater Than B
+→ Output: True
+
+Use: SCG Evaluate Float Math
+float_a: 0.5
+float_b: 0.75
+operation: A Less Than B
+→ Output: True
 ```
 
 ### Scale Image to Target Dimension
