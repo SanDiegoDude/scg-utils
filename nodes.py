@@ -2,7 +2,18 @@ import torch
 import numpy as np
 import math
 import re
+import os
+import hashlib
 from PIL import Image
+
+# Audio imports - these are available in ComfyUI's environment
+try:
+    import av
+    import torchaudio
+    import folder_paths
+    AUDIO_AVAILABLE = True
+except ImportError:
+    AUDIO_AVAILABLE = False
 
 class SCGZeroedOutputs:
     """
@@ -2146,6 +2157,539 @@ class SCGEvaluateFloatMath:
             result = False
         
         return (result,)
+
+
+def _f32_pcm(wav: torch.Tensor) -> torch.Tensor:
+    """Convert audio to float 32 bits PCM format."""
+    if wav.dtype.is_floating_point:
+        return wav
+    elif wav.dtype == torch.int16:
+        return wav.float() / (2 ** 15)
+    elif wav.dtype == torch.int32:
+        return wav.float() / (2 ** 31)
+    raise ValueError(f"Unsupported wav dtype: {wav.dtype}")
+
+
+def _load_audio(filepath: str) -> tuple:
+    """Load audio file using av library. Returns (waveform, sample_rate)."""
+    if not AUDIO_AVAILABLE:
+        raise ImportError("Audio loading requires 'av' and 'folder_paths' modules from ComfyUI")
+    
+    with av.open(filepath) as af:
+        if not af.streams.audio:
+            raise ValueError("No audio stream found in the file.")
+
+        stream = af.streams.audio[0]
+        sr = stream.codec_context.sample_rate
+        n_channels = stream.channels
+
+        frames = []
+        length = 0
+        for frame in af.decode(streams=stream.index):
+            buf = torch.from_numpy(frame.to_ndarray())
+            if buf.shape[0] != n_channels:
+                buf = buf.view(-1, n_channels).t()
+
+            frames.append(buf)
+            length += buf.shape[1]
+
+        if not frames:
+            raise ValueError("No audio frames decoded.")
+
+        wav = torch.cat(frames, dim=1)
+        wav = _f32_pcm(wav)
+        return wav, sr
+
+
+class SCGLoadAudioPlus:
+    """
+    An enhanced audio loading node with trimming capabilities and audio preview.
+    Loads audio files with optional start time and sample length trimming,
+    and outputs detailed timing information as floats.
+    
+    Features:
+    - Load audio files (wav, mp3, ogg, flac, aiff, aif)
+    - Audio preview player on the node
+    - Trim with start time and sample length (0.00 = disabled)
+    - Output timing information: start_time, end_time, total_duration, trim_duration
+    """
+    
+    @classmethod
+    def INPUT_TYPES(cls):
+        if not AUDIO_AVAILABLE:
+            return {
+                "required": {
+                    "audio": (["audio_not_available"],),
+                }
+            }
+        
+        input_dir = folder_paths.get_input_directory()
+        files = folder_paths.filter_files_content_types(os.listdir(input_dir), ["audio", "video"])
+        files_list = sorted(files) if files else ["no_audio_files_found"]
+        return {
+            "required": {
+                "audio": (files_list,),
+            },
+            "optional": {
+                "trim_start_time": ("FLOAT", {
+                    "default": 0.00,
+                    "min": 0.00,
+                    "max": 86400.0,  # 24 hours max
+                    "step": 0.01,
+                    "display": "number",
+                    "tooltip": "Start time in seconds. 0.00 = start from beginning."
+                }),
+                "trim_sample_length": ("FLOAT", {
+                    "default": 0.00,
+                    "min": 0.00,
+                    "max": 86400.0,  # 24 hours max
+                    "step": 0.01,
+                    "display": "number",
+                    "tooltip": "Length of audio to keep in seconds. 0.00 = keep until end."
+                }),
+            }
+        }
+    
+    RETURN_TYPES = ("AUDIO", "FLOAT", "FLOAT", "FLOAT", "FLOAT", "STRING")
+    RETURN_NAMES = ("audio", "start_time", "end_time", "total_duration", "trim_duration", "filename")
+    FUNCTION = "load_audio"
+    CATEGORY = "scg-utils"
+    OUTPUT_NODE = True  # Enable UI output for audio preview
+    
+    def load_audio(self, audio, trim_start_time=0.0, trim_sample_length=0.0):
+        """
+        Load audio file with optional trimming.
+        
+        Args:
+            audio: Audio file path/name
+            trim_start_time: Start time in seconds (0.00 = start from beginning)
+            trim_sample_length: Length to keep in seconds (0.00 = keep until end)
+        
+        Returns:
+            Dict with UI data and result tuple
+        """
+        if not AUDIO_AVAILABLE:
+            raise ImportError("Audio loading requires ComfyUI's audio dependencies (av, folder_paths)")
+        
+        # Handle empty/invalid values - convert to float with default
+        try:
+            trim_start_time = float(trim_start_time) if trim_start_time not in (None, "", '') else 0.0
+        except (ValueError, TypeError):
+            trim_start_time = 0.0
+        
+        try:
+            trim_sample_length = float(trim_sample_length) if trim_sample_length not in (None, "", '') else 0.0
+        except (ValueError, TypeError):
+            trim_sample_length = 0.0
+        
+        # Load the audio file
+        audio_path = folder_paths.get_annotated_filepath(audio)
+        waveform, sample_rate = _load_audio(audio_path)
+        
+        # Extract just the filename (not full path)
+        input_filename = os.path.basename(audio_path)
+        
+        # Add batch dimension
+        waveform = waveform.unsqueeze(0)
+        
+        # Calculate total duration
+        total_samples = waveform.shape[-1]
+        total_duration = round(total_samples / sample_rate, 2)
+        
+        # Calculate actual trim values
+        start_time = round(trim_start_time, 2) if trim_start_time > 0 else 0.00
+        
+        # Clamp start_time to valid range
+        if start_time >= total_duration:
+            print(f"[SCG Load Audio Plus] Warning: start_time ({start_time}) >= total_duration ({total_duration}), using 0")
+            start_time = 0.00
+        
+        # Calculate end_time based on sample_length
+        if trim_sample_length > 0:
+            end_time = round(min(start_time + trim_sample_length, total_duration), 2)
+        else:
+            end_time = round(total_duration, 2)
+        
+        # Apply trimming if needed
+        if start_time > 0 or trim_sample_length > 0:
+            start_frame = int(round(start_time * sample_rate))
+            end_frame = int(round(end_time * sample_rate))
+            
+            # Clamp to valid range
+            start_frame = max(0, min(start_frame, total_samples - 1))
+            end_frame = max(start_frame + 1, min(end_frame, total_samples))
+            
+            waveform = waveform[..., start_frame:end_frame]
+            print(f"[SCG Load Audio Plus] Trimmed audio: {start_time:.2f}s - {end_time:.2f}s (length: {end_time - start_time:.2f}s, original: {total_duration:.2f}s)")
+        
+        # Calculate trim duration (duration of output audio)
+        trim_samples = waveform.shape[-1]
+        trim_duration = round(trim_samples / sample_rate, 2)
+        
+        # Create audio output dict
+        audio_output = {"waveform": waveform, "sample_rate": sample_rate}
+        
+        # Save audio to temp file for preview
+        # Use the same format as PreviewAudio/SaveAudio for UI compatibility
+        import random
+        
+        # Create temp directory if needed
+        temp_dir = folder_paths.get_temp_directory()
+        os.makedirs(temp_dir, exist_ok=True)
+        
+        # Generate unique filename
+        random_suffix = ''.join(random.choices('abcdefghijklmnopqrstuvwxyz', k=8))
+        temp_filename = f"scg_audio_preview_{random_suffix}.flac"
+        temp_path = os.path.join(temp_dir, temp_filename)
+        
+        # Save audio for preview (using torchaudio)
+        # Waveform shape is [batch, channels, samples], we need [channels, samples] for torchaudio
+        preview_waveform = waveform[0]  # Remove batch dimension
+        torchaudio.save(temp_path, preview_waveform, sample_rate, format="flac")
+        
+        # Return with UI data for audio preview
+        return {
+            "ui": {
+                "audio": [{
+                    "filename": temp_filename,
+                    "subfolder": "",
+                    "type": "temp"
+                }]
+            },
+            "result": (audio_output, start_time, end_time, total_duration, trim_duration, input_filename)
+        }
+    
+    @classmethod
+    def IS_CHANGED(cls, audio, trim_start_time=0.0, trim_sample_length=0.0):
+        """Check if the audio file has changed."""
+        if not AUDIO_AVAILABLE:
+            return ""
+        audio_path = folder_paths.get_annotated_filepath(audio)
+        m = hashlib.sha256()
+        with open(audio_path, 'rb') as f:
+            m.update(f.read())
+        # Include trim values in hash so node re-executes when they change
+        try:
+            start_val = float(trim_start_time) if trim_start_time not in (None, "", '') else 0.0
+            length_val = float(trim_sample_length) if trim_sample_length not in (None, "", '') else 0.0
+        except (ValueError, TypeError):
+            start_val, length_val = 0.0, 0.0
+        m.update(f"{start_val:.2f}{length_val:.2f}".encode())
+        return m.digest().hex()
+    
+    @classmethod
+    def VALIDATE_INPUTS(cls, audio, trim_start_time=0.0, trim_sample_length=0.0):
+        """Validate the audio file exists."""
+        if not AUDIO_AVAILABLE:
+            return "Audio loading not available - missing dependencies"
+        if not folder_paths.exists_annotated_filepath(audio):
+            return f"Invalid audio file: {audio}"
+        return True
+
+
+class SCGFastVideoFromAudio:
+    """
+    Creates a video from a single image repeated for the duration of an audio track.
+    The image is duplicated to match the audio length at the specified FPS,
+    then encoded as an MP4 video with the audio track.
+    
+    Features:
+    - Single image input (used as every frame)
+    - Audio input (determines video length)
+    - Configurable FPS (default 30)
+    - Video preview with optional autoplay
+    - Save options with filename_prefix and video_name
+    - Output as standard MP4 video
+    """
+    
+    def __init__(self):
+        self.output_dir = folder_paths.get_output_directory()
+        self.temp_dir = folder_paths.get_temp_directory()
+        self.type = "output"
+    
+    # Resolution presets with their approximate megapixel counts
+    # Based on standard 16:9 resolutions, but we scale to match MP while preserving input aspect ratio
+    RESOLUTION_PRESETS = {
+        "360p": 0.23,    # 640x360 = 230,400 pixels
+        "540p": 0.52,    # 960x540 = 518,400 pixels
+        "720p": 0.92,    # 1280x720 = 921,600 pixels
+        "1080p": 2.07,   # 1920x1080 = 2,073,600 pixels
+        "4k": 8.29,      # 3840x2160 = 8,294,400 pixels
+    }
+    
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "image": ("IMAGE",),
+                "audio": ("AUDIO",),
+                "resolution": (["360p", "540p", "720p", "1080p", "4k"], {
+                    "default": "1080p",
+                    "tooltip": "Output resolution (scales image to match megapixels while preserving aspect ratio)"
+                }),
+                "fps": ("FLOAT", {
+                    "default": 30.0,
+                    "min": 1.0,
+                    "max": 120.0,
+                    "step": 0.1,
+                    "display": "number",
+                    "tooltip": "Frames per second for the output video"
+                }),
+                "filename_prefix": ("STRING", {"default": "video/comfy_video"}),
+                "save": ("BOOLEAN", {"default": True, "tooltip": "Save video to output folder (False = preview only)"}),
+                "autoplay": ("BOOLEAN", {"default": True, "tooltip": "Automatically play video preview when complete"}),
+            },
+            "optional": {
+                "video_name": ("STRING", {"default": ""}),
+            }
+        }
+    
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("video_path",)
+    FUNCTION = "create_video"
+    OUTPUT_NODE = True
+    CATEGORY = "scg-utils"
+    
+    def _get_next_counter(self, folder, base_filename, extension):
+        """Find the next available counter for the filename pattern."""
+        import glob
+        pattern = os.path.join(folder, f"{base_filename}_*.{extension}")
+        existing_files = glob.glob(pattern)
+        
+        max_counter = 0
+        for filepath in existing_files:
+            filename = os.path.basename(filepath)
+            try:
+                name_without_ext = os.path.splitext(filename)[0]
+                parts = name_without_ext.rsplit('_', 1)
+                if len(parts) == 2 and parts[1].isdigit():
+                    counter = int(parts[1])
+                    max_counter = max(max_counter, counter)
+            except (ValueError, IndexError):
+                continue
+        
+        return max_counter + 1
+    
+    def _sanitize_filename_component(self, name_string):
+        """Sanitize a string to be safe for use in filenames."""
+        if not name_string:
+            return ""
+        # Replace spaces and common problematic characters with underscores
+        name_string = re.sub(r'[\s/:*?"<>|]+', '_', name_string)
+        # Remove any characters not in a safe list
+        sanitized_name = re.sub(r'[^a-zA-Z0-9_-]', '', name_string)
+        # Limit length
+        return sanitized_name[:100]
+    
+    def _get_datestamp(self):
+        """Generate a datestamp for default filename."""
+        from datetime import datetime
+        return datetime.now().strftime("%Y%m%d_%H%M%S")
+    
+    def create_video(self, image, audio, resolution, fps, filename_prefix, save=True, autoplay=True, video_name=None):
+        """
+        Create a video from a single image repeated for the audio duration.
+        
+        Args:
+            image: Input image tensor (will be repeated for every frame)
+            audio: Audio data dict with waveform and sample_rate
+            resolution: Target resolution preset (360p, 540p, 720p, 1080p, 4k)
+            fps: Frames per second
+            filename_prefix: Save path prefix
+            save: Whether to save to output folder (False = temp/preview only)
+            autoplay: Whether to autoplay the video preview
+            video_name: Optional custom video name (blank = datestamp)
+        
+        Returns:
+            Tuple with video file path
+        """
+        import subprocess
+        import random
+        import string
+        
+        # Get audio duration
+        waveform = audio["waveform"]
+        sample_rate = audio["sample_rate"]
+        
+        # Handle batch dimension
+        if waveform.dim() == 3:
+            audio_samples = waveform.shape[-1]
+        else:
+            audio_samples = waveform.shape[-1]
+        
+        audio_duration = audio_samples / sample_rate
+        total_frames = int(math.ceil(audio_duration * fps))
+        
+        print(f"[SCG Fast Video from Audio] Audio duration: {audio_duration:.2f}s, FPS: {fps}, Total frames: {total_frames}")
+        
+        # Get image dimensions
+        # Image shape is (batch, height, width, channels)
+        if image.dim() == 4:
+            img_tensor = image[0]  # Take first image from batch
+        else:
+            img_tensor = image
+        
+        orig_height, orig_width, channels = img_tensor.shape
+        print(f"[SCG Fast Video from Audio] Original image size: {orig_width}x{orig_height}")
+        
+        # Scale image to target resolution (megapixels) while preserving aspect ratio
+        target_megapixels = self.RESOLUTION_PRESETS.get(resolution, 2.07)  # Default to 1080p
+        current_megapixels = (orig_width * orig_height) / 1_000_000
+        
+        if current_megapixels > 0:
+            scale_factor = math.sqrt(target_megapixels / current_megapixels)
+            new_width = int(orig_width * scale_factor)
+            new_height = int(orig_height * scale_factor)
+        else:
+            new_width, new_height = orig_width, orig_height
+        
+        # Ensure dimensions are divisible by 2 (required by H.264)
+        new_width = (new_width // 2) * 2
+        new_height = (new_height // 2) * 2
+        
+        # Ensure minimum dimensions
+        new_width = max(new_width, 2)
+        new_height = max(new_height, 2)
+        
+        print(f"[SCG Fast Video from Audio] Target resolution: {resolution} ({target_megapixels:.2f}MP)")
+        print(f"[SCG Fast Video from Audio] Scaled image size: {new_width}x{new_height}")
+        
+        # Resize image if needed
+        if new_width != orig_width or new_height != orig_height:
+            # Use PIL for high-quality resize
+            img_np = (img_tensor.cpu().numpy() * 255).astype(np.uint8)
+            pil_img = Image.fromarray(img_np)
+            pil_img = pil_img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+            img_tensor_resized = torch.from_numpy(np.array(pil_img)).float() / 255.0
+        else:
+            img_tensor_resized = img_tensor
+        
+        # Use the scaled dimensions for the rest
+        width, height = new_width, new_height
+        
+        if save:
+            # Save mode: use output directory with proper naming
+            current_filename_prefix = filename_prefix
+            
+            if video_name and video_name.strip():
+                sanitized_name = self._sanitize_filename_component(video_name.strip())
+            else:
+                sanitized_name = self._get_datestamp()
+            
+            if sanitized_name:
+                if current_filename_prefix.endswith(('/', '\\')):
+                    current_filename_prefix = f"{current_filename_prefix}{sanitized_name}"
+                else:
+                    parts = os.path.split(current_filename_prefix)
+                    if parts[1]:
+                        current_filename_prefix = os.path.join(parts[0], f"{parts[1]}_{sanitized_name}")
+                    else:
+                        current_filename_prefix = os.path.join(parts[0], sanitized_name)
+            
+            # Get save path
+            resolved_full_output_folder, resolved_base_filename, _, resolved_subfolder, _ = folder_paths.get_save_image_path(
+                current_filename_prefix, self.output_dir, width, height
+            )
+            
+            counter = self._get_next_counter(resolved_full_output_folder, resolved_base_filename, "mp4")
+            final_filename = f"{resolved_base_filename}_{counter:05}.mp4"
+            full_video_path = os.path.join(resolved_full_output_folder, final_filename)
+            output_type = "output"
+            
+            print(f"[SCG Fast Video from Audio] Save mode - Output path: {full_video_path}")
+        else:
+            # Preview-only mode: use temp directory with random prefix
+            random_prefix = ''.join(random.choice(string.ascii_lowercase) for _ in range(8))
+            final_filename = f"SCG_temp_video_{random_prefix}.mp4"
+            resolved_full_output_folder = self.temp_dir
+            resolved_subfolder = ""
+            full_video_path = os.path.join(self.temp_dir, final_filename)
+            output_type = "temp"
+            counter = 0
+            
+            print(f"[SCG Fast Video from Audio] Preview-only mode - temp path: {full_video_path}")
+        
+        # Create temp files for the image and audio
+        temp_image_path = os.path.join(self.temp_dir, f"scg_temp_frame_{counter:05}.png")
+        temp_audio_path = os.path.join(self.temp_dir, f"scg_temp_audio_{counter:05}.wav")
+        
+        # Save the resized image as PNG
+        img_np = (img_tensor_resized.cpu().numpy() * 255).astype(np.uint8)
+        pil_img = Image.fromarray(img_np)
+        pil_img.save(temp_image_path)
+        
+        # Save the audio as WAV
+        audio_waveform = waveform[0] if waveform.dim() == 3 else waveform  # Remove batch dim
+        torchaudio.save(temp_audio_path, audio_waveform.cpu(), sample_rate, format="wav")
+        
+        # Use ffmpeg to create video with audio
+        # -loop 1: loop the image
+        # -t: explicit duration (audio length) - more reliable than -shortest with looped input
+        # -i: input image
+        # -i: input audio  
+        # -c:v libx264: H.264 video codec
+        # -tune stillimage: optimize for still image
+        # -c:a aac: AAC audio codec
+        # -b:a 192k: audio bitrate
+        # -pix_fmt yuv420p: pixel format for compatibility
+        # -r: framerate
+        
+        ffmpeg_cmd = [
+            "ffmpeg",
+            "-y",  # Overwrite output
+            "-loop", "1",  # Loop image
+            "-t", str(audio_duration),  # Explicit duration - trim to audio length
+            "-i", temp_image_path,  # Input image
+            "-i", temp_audio_path,  # Input audio
+            "-c:v", "libx264",  # Video codec
+            "-tune", "stillimage",  # Optimize for still image
+            "-c:a", "aac",  # Audio codec
+            "-b:a", "192k",  # Audio bitrate
+            "-pix_fmt", "yuv420p",  # Pixel format
+            "-r", str(fps),  # Frame rate
+            "-shortest",  # Belt and suspenders - also use shortest
+            full_video_path
+        ]
+        
+        print(f"[SCG Fast Video from Audio] Running ffmpeg: {' '.join(ffmpeg_cmd)}")
+        
+        try:
+            result = subprocess.run(
+                ffmpeg_cmd,
+                capture_output=True,
+                text=True,
+                timeout=300  # 5 minute timeout
+            )
+            
+            if result.returncode != 0:
+                print(f"[SCG Fast Video from Audio] ffmpeg error: {result.stderr}")
+                raise RuntimeError(f"ffmpeg failed: {result.stderr[:500]}")
+            
+            print(f"[SCG Fast Video from Audio] Video created successfully: {full_video_path}")
+            
+        except subprocess.TimeoutExpired:
+            raise RuntimeError("ffmpeg timed out after 5 minutes")
+        except FileNotFoundError:
+            raise RuntimeError("ffmpeg not found. Please install ffmpeg.")
+        finally:
+            # Clean up temp files
+            if os.path.exists(temp_image_path):
+                os.remove(temp_image_path)
+            if os.path.exists(temp_audio_path):
+                os.remove(temp_audio_path)
+        
+        # Return video info for UI with autoplay flag
+        return {
+            "ui": {
+                "video": [{
+                    "filename": final_filename,
+                    "subfolder": resolved_subfolder,
+                    "type": output_type,
+                    "autoplay": autoplay
+                }]
+            },
+            "result": (full_video_path,)
+        }
 
 
 class SCGStitchInpaintImage:

@@ -12,6 +12,8 @@ from .nodes import (
     SCGFormatInteger,
     SCGEvaluateIntMath,
     SCGEvaluateFloatMath,
+    SCGLoadAudioPlus,
+    SCGFastVideoFromAudio,
 )
 from .nodes_qwen import SCGTextEncoderQwenEditPlus
 from .nodes_remote_llm import SCGRemoteLLMVLM_OAI
@@ -34,6 +36,8 @@ NODE_CLASS_MAPPINGS = {
     "SCGFormatInteger": SCGFormatInteger,
     "SCGEvaluateIntMath": SCGEvaluateIntMath,
     "SCGEvaluateFloatMath": SCGEvaluateFloatMath,
+    "SCGLoadAudioPlus": SCGLoadAudioPlus,
+    "SCGFastVideoFromAudio": SCGFastVideoFromAudio,
     "SCGRemoteLLMVLM_OAI": SCGRemoteLLMVLM_OAI,
     "RAAG_ModelPatch": RAAG_ModelPatch,
     "SCGColorPaletteTransformer": SCGColorPaletteTransformer,
@@ -55,10 +59,14 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "SCGFormatInteger": "SCG Format Integer",
     "SCGEvaluateIntMath": "SCG Evaluate Int Math",
     "SCGEvaluateFloatMath": "SCG Evaluate Float Math",
+    "SCGLoadAudioPlus": "SCG Load Audio Plus",
+    "SCGFastVideoFromAudio": "SCG Fast Video from Audio",
     "SCGRemoteLLMVLM_OAI": "SCG Remote LLM/VLM - OAI Standard",
     "RAAG_ModelPatch": "RAAG (Ratio Aware Adaptive Guidance)",
     "SCGColorPaletteTransformer": "SCG Color Palette Transformer",
     "SCGConsoleStylizer": "SCG Console Stylizer",
 }
 
-__all__ = ['NODE_CLASS_MAPPINGS', 'NODE_DISPLAY_NAME_MAPPINGS'] 
+WEB_DIRECTORY = "./web"
+
+__all__ = ['NODE_CLASS_MAPPINGS', 'NODE_DISPLAY_NAME_MAPPINGS', 'WEB_DIRECTORY'] 

@@ -62,6 +62,12 @@ A collection of handy ComfyUI nodes for image manipulation, retro effects, AI in
 ### Number Utilities
 - **SCG Format Integer** - Round integers to divisible values with optional offset
 
+### Audio Utilities
+- **SCG Load Audio Plus** - Enhanced audio loader with trimming and timing outputs
+
+### Video Utilities
+- **SCG Fast Video from Audio** - Create video from a single image + audio track
+
 ## 🚀 Installation
 
 ### Via ComfyUI Manager (Recommended)
@@ -160,6 +166,32 @@ dimension_constraint: resize
 divisible_by: 8
 → Scales image so the shortest side is 1024px, 
   then adjusts both dimensions to be divisible by 8
+```
+
+### Load and Trim Audio
+```
+Use: SCG Load Audio Plus
+audio: my_audio.mp3
+trim_start_time: 5.00 (start at 5 seconds)
+trim_sample_length: 10.00 (keep 10 seconds of audio)
+→ Outputs audio from 5s to 15s:
+  - audio: trimmed audio data
+  - start_time: 5.00
+  - end_time: 15.00
+  - total_duration: original length in seconds
+  - trim_duration: 10.00 (length of output)
+```
+
+### Create Video from Image + Audio
+```
+Use: SCG Fast Video from Audio
+image: any image input
+audio: any audio input
+fps: 30.0
+filename_prefix: video/my_video
+video_name: my_clip (or blank for datestamp)
+→ Creates MP4 video with the image repeated
+   for the full duration of the audio track
 ```
 
 ## 🎮 Supported Consoles & Systems
