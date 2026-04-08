@@ -5,14 +5,16 @@ from PIL import Image, ImageFilter
 
 class SCGMaskImageDifference:
     """
-    Compare source and target images to produce a mask of the regions that differ.
+    Compare source and target images to produce a mask of the regions that differ,
+    and an RGBA cutout of the target with changed regions punched to transparency.
 
     Designed for edit-model workflows where color matching needs to ignore
-    altered areas. The mask marks changed pixels (1.0) so they can be excluded
-    from downstream processing like color transfer.
+    altered areas. The cutout replaces changed pixels with full transparency
+    so downstream colour-transfer sees only the untouched regions.
 
     Outputs:
-        mask          – binary/feathered MASK usable by any mask-consuming node
+        cutout_image   – RGBA IMAGE: target with changed regions transparent
+        mask           – binary/feathered MASK usable by any mask-consuming node
         difference_map – grayscale IMAGE visualising raw per-pixel difference
                          (handy for tuning the threshold)
     """
@@ -55,14 +57,14 @@ class SCGMaskImageDifference:
                 ),
                 "difference_mode": (
                     ["max_channel", "average", "euclidean"],
-                    {"default": "max_channel"},
+                    {"default": "average"},
                 ),
                 "invert_mask": ("BOOLEAN", {"default": False}),
             }
         }
 
-    RETURN_TYPES = ("MASK", "IMAGE")
-    RETURN_NAMES = ("mask", "difference_map")
+    RETURN_TYPES = ("IMAGE", "MASK", "IMAGE")
+    RETURN_NAMES = ("cutout_image", "mask", "difference_map")
     FUNCTION = "compute_difference_mask"
     CATEGORY = "scg-utils"
 
@@ -85,6 +87,7 @@ class SCGMaskImageDifference:
         batch = max(src.shape[0], tgt.shape[0])
         masks = []
         diff_maps = []
+        cutouts = []
 
         for i in range(batch):
             s = src[min(i, src.shape[0] - 1)]
@@ -110,13 +113,21 @@ class SCGMaskImageDifference:
             if invert_mask:
                 mask = 1.0 - mask
 
+            # RGBA cutout: target RGB + alpha where changed regions → transparent
+            # mask=1 means "changed", so alpha = 1 - mask (unchanged = opaque)
+            alpha = (1.0 - mask).unsqueeze(-1)  # (H, W, 1)
+            rgb = t[..., :3].float()
+            rgba = torch.cat([rgb, alpha], dim=-1)  # (H, W, 4)
+
             masks.append(mask)
             diff_maps.append(diff_mono)
+            cutouts.append(rgba)
 
         mask_out = torch.stack(masks, dim=0)
         diff_rgb = torch.stack(diff_maps, dim=0).unsqueeze(-1).expand(-1, -1, -1, 3)
+        cutout_out = torch.stack(cutouts, dim=0)
 
-        return (mask_out, diff_rgb)
+        return (cutout_out, mask_out, diff_rgb)
 
     # ------------------------------------------------------------------
     # Helpers
