@@ -1,0 +1,155 @@
+import torch
+import numpy as np
+from PIL import Image, ImageFilter
+
+
+class SCGMaskImageDifference:
+    """
+    Compare source and target images to produce a mask of the regions that differ.
+
+    Designed for edit-model workflows where color matching needs to ignore
+    altered areas. The mask marks changed pixels (1.0) so they can be excluded
+    from downstream processing like color transfer.
+
+    Outputs:
+        mask          – binary/feathered MASK usable by any mask-consuming node
+        difference_map – grayscale IMAGE visualising raw per-pixel difference
+                         (handy for tuning the threshold)
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "source_image": ("IMAGE",),
+                "target_image": ("IMAGE",),
+                "threshold": (
+                    "FLOAT",
+                    {
+                        "default": 0.05,
+                        "min": 0.0,
+                        "max": 1.0,
+                        "step": 0.005,
+                        "tooltip": "Minimum per-pixel difference to count as changed. Lower = more sensitive.",
+                    },
+                ),
+                "blur_radius": (
+                    "FLOAT",
+                    {
+                        "default": 5.0,
+                        "min": 0.0,
+                        "max": 100.0,
+                        "step": 0.5,
+                        "tooltip": "Feather radius for mask edges. 0 = hard binary mask.",
+                    },
+                ),
+                "expand_pixels": (
+                    "INT",
+                    {
+                        "default": 0,
+                        "min": 0,
+                        "max": 200,
+                        "step": 1,
+                        "tooltip": "Dilate the mask by N pixels to catch edit boundaries.",
+                    },
+                ),
+                "difference_mode": (
+                    ["max_channel", "average", "euclidean"],
+                    {"default": "max_channel"},
+                ),
+                "invert_mask": ("BOOLEAN", {"default": False}),
+            }
+        }
+
+    RETURN_TYPES = ("MASK", "IMAGE")
+    RETURN_NAMES = ("mask", "difference_map")
+    FUNCTION = "compute_difference_mask"
+    CATEGORY = "scg-utils"
+
+    def compute_difference_mask(
+        self,
+        source_image,
+        target_image,
+        threshold,
+        blur_radius,
+        expand_pixels,
+        difference_mode,
+        invert_mask,
+    ):
+        src = source_image
+        tgt = target_image
+
+        if src.shape[1:3] != tgt.shape[1:3]:
+            src = self._resize_to_match(src, tgt.shape[1], tgt.shape[2])
+
+        batch = max(src.shape[0], tgt.shape[0])
+        masks = []
+        diff_maps = []
+
+        for i in range(batch):
+            s = src[min(i, src.shape[0] - 1)]
+            t = tgt[min(i, tgt.shape[0] - 1)]
+
+            diff = torch.abs(s.float() - t.float())  # (H, W, C)
+
+            if difference_mode == "average":
+                diff_mono = diff.mean(dim=-1)
+            elif difference_mode == "euclidean":
+                diff_mono = torch.sqrt((diff ** 2).sum(dim=-1) / 3.0)
+            else:  # max_channel
+                diff_mono = diff.max(dim=-1)[0]
+
+            mask = (diff_mono > threshold).float()
+
+            if expand_pixels > 0:
+                mask = self._dilate_mask(mask, expand_pixels)
+
+            if blur_radius > 0:
+                mask = self._blur_mask(mask, blur_radius)
+
+            if invert_mask:
+                mask = 1.0 - mask
+
+            masks.append(mask)
+            diff_maps.append(diff_mono)
+
+        mask_out = torch.stack(masks, dim=0)
+        diff_rgb = torch.stack(diff_maps, dim=0).unsqueeze(-1).expand(-1, -1, -1, 3)
+
+        return (mask_out, diff_rgb)
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _resize_to_match(img, target_h, target_w):
+        bchw = img.permute(0, 3, 1, 2)
+        resized = torch.nn.functional.interpolate(
+            bchw,
+            size=(target_h, target_w),
+            mode="bilinear",
+            align_corners=False,
+            antialias=True,
+        )
+        return resized.permute(0, 2, 3, 1)
+
+    @staticmethod
+    def _dilate_mask(mask, pixels):
+        """Grow mask region using max-pool (no extra deps)."""
+        kernel = pixels * 2 + 1
+        m = mask.unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)
+        dilated = torch.nn.functional.max_pool2d(
+            m, kernel_size=kernel, stride=1, padding=pixels
+        )
+        return dilated[0, 0]
+
+    @staticmethod
+    def _blur_mask(mask, radius):
+        """Feather via PIL GaussianBlur (always available in ComfyUI)."""
+        mask_np = (mask.cpu().numpy() * 255).astype(np.uint8)
+        pil = Image.fromarray(mask_np, mode="L")
+        blurred = pil.filter(ImageFilter.GaussianBlur(radius=radius))
+        return torch.from_numpy(
+            np.array(blurred).astype(np.float32) / 255.0
+        ).to(mask.device)

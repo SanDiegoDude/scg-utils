@@ -14,12 +14,14 @@ from .nodes import (
     SCGEvaluateFloatMath,
     SCGLoadAudioPlus,
     SCGFastVideoFromAudio,
+    SCGSwitchNull,
 )
 from .nodes_qwen import SCGTextEncoderQwenEditPlus
 from .nodes_remote_llm import SCGRemoteLLMVLM_OAI
 from .nodes_raag import RAAG_ModelPatch
 from .nodes_color_palette import SCGColorPaletteTransformer
 from .nodes_console_stylizer import SCGConsoleStylizer
+from .nodes_mask_diff import SCGMaskImageDifference
 
 NODE_CLASS_MAPPINGS = {
     "SCGZeroedOutputs": SCGZeroedOutputs,
@@ -42,6 +44,8 @@ NODE_CLASS_MAPPINGS = {
     "RAAG_ModelPatch": RAAG_ModelPatch,
     "SCGColorPaletteTransformer": SCGColorPaletteTransformer,
     "SCGConsoleStylizer": SCGConsoleStylizer,
+    "SCGSwitchNull": SCGSwitchNull,
+    "SCGMaskImageDifference": SCGMaskImageDifference,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -65,6 +69,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "RAAG_ModelPatch": "RAAG (Ratio Aware Adaptive Guidance)",
     "SCGColorPaletteTransformer": "SCG Color Palette Transformer",
     "SCGConsoleStylizer": "SCG Console Stylizer",
+    "SCGSwitchNull": "SCG Switch Null",
+    "SCGMaskImageDifference": "SCG Mask Image Difference",
 }
 
 WEB_DIRECTORY = "./web"
