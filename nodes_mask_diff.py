@@ -6,14 +6,16 @@ from PIL import Image, ImageFilter
 class SCGMaskImageDifference:
     """
     Compare source and target images to produce a mask of the regions that differ,
-    and an RGBA cutout of the target with changed regions punched to transparency.
+    plus both RGBA and RGB cutouts of the target with changed regions removed.
 
     Designed for edit-model workflows where color matching needs to ignore
-    altered areas. The cutout replaces changed pixels with full transparency
-    so downstream colour-transfer sees only the untouched regions.
+    altered areas.
 
     Outputs:
-        cutout_image   – RGBA IMAGE: target with changed regions transparent
+        cutout_rgba    – 4-channel IMAGE: target with changed regions transparent
+                         (use with Save Image for transparent PNGs)
+        cutout_rgb     – 3-channel IMAGE: target with changed regions blacked out
+                         (safe for any downstream node expecting standard RGB)
         mask           – binary/feathered MASK usable by any mask-consuming node
         difference_map – grayscale IMAGE visualising raw per-pixel difference
                          (handy for tuning the threshold)
@@ -63,8 +65,8 @@ class SCGMaskImageDifference:
             }
         }
 
-    RETURN_TYPES = ("IMAGE", "MASK", "IMAGE")
-    RETURN_NAMES = ("cutout_image", "mask", "difference_map")
+    RETURN_TYPES = ("IMAGE", "IMAGE", "MASK", "IMAGE")
+    RETURN_NAMES = ("cutout_rgba", "cutout_rgb", "mask", "difference_map")
     FUNCTION = "compute_difference_mask"
     CATEGORY = "scg-utils"
 
@@ -87,7 +89,8 @@ class SCGMaskImageDifference:
         batch = max(src.shape[0], tgt.shape[0])
         masks = []
         diff_maps = []
-        cutouts = []
+        cutouts_rgba = []
+        cutouts_rgb = []
 
         for i in range(batch):
             s = src[min(i, src.shape[0] - 1)]
@@ -113,21 +116,24 @@ class SCGMaskImageDifference:
             if invert_mask:
                 mask = 1.0 - mask
 
-            # RGBA cutout: target RGB + alpha where changed regions → transparent
-            # mask=1 means "changed", so alpha = 1 - mask (unchanged = opaque)
+            # mask=1 → changed, alpha = 1-mask → changed regions transparent
             alpha = (1.0 - mask).unsqueeze(-1)  # (H, W, 1)
             rgb = t[..., :3].float()
-            rgba = torch.cat([rgb, alpha], dim=-1)  # (H, W, 4)
+
+            rgba = torch.cat([rgb, alpha], dim=-1)              # (H, W, 4)
+            rgb_masked = rgb * alpha                             # (H, W, 3)
 
             masks.append(mask)
             diff_maps.append(diff_mono)
-            cutouts.append(rgba)
+            cutouts_rgba.append(rgba)
+            cutouts_rgb.append(rgb_masked)
 
         mask_out = torch.stack(masks, dim=0)
         diff_rgb = torch.stack(diff_maps, dim=0).unsqueeze(-1).expand(-1, -1, -1, 3)
-        cutout_out = torch.stack(cutouts, dim=0)
+        rgba_out = torch.stack(cutouts_rgba, dim=0)
+        rgb_out = torch.stack(cutouts_rgb, dim=0)
 
-        return (cutout_out, mask_out, diff_rgb)
+        return (rgba_out, rgb_out, mask_out, diff_rgb)
 
     # ------------------------------------------------------------------
     # Helpers
