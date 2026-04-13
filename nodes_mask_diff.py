@@ -61,6 +61,13 @@ class SCGMaskImageDifference:
                     ["max_channel", "average", "euclidean"],
                     {"default": "average"},
                 ),
+                "rgb_fill": (
+                    ["average", "black", "gray", "white"],
+                    {
+                        "default": "average",
+                        "tooltip": "Colour used to replace masked regions in the RGB output.",
+                    },
+                ),
                 "invert_mask": ("BOOLEAN", {"default": False}),
             }
         }
@@ -70,6 +77,12 @@ class SCGMaskImageDifference:
     FUNCTION = "compute_difference_mask"
     CATEGORY = "scg-utils"
 
+    _FILL_VALUES = {
+        "black": 0.0,
+        "gray": 0.5,
+        "white": 1.0,
+    }
+
     def compute_difference_mask(
         self,
         source_image,
@@ -78,6 +91,7 @@ class SCGMaskImageDifference:
         blur_radius,
         expand_pixels,
         difference_mode,
+        rgb_fill,
         invert_mask,
     ):
         src = source_image
@@ -119,9 +133,21 @@ class SCGMaskImageDifference:
             # mask=1 → changed, alpha = 1-mask → changed regions transparent
             alpha = (1.0 - mask).unsqueeze(-1)  # (H, W, 1)
             rgb = t[..., :3].float()
+            mask_3ch = mask.unsqueeze(-1)  # (H, W, 1)
 
-            rgba = torch.cat([rgb, alpha], dim=-1)              # (H, W, 4)
-            rgb_masked = rgb * alpha                             # (H, W, 3)
+            rgba = torch.cat([rgb, alpha], dim=-1)  # (H, W, 4)
+
+            if rgb_fill == "average":
+                opaque = alpha.squeeze(-1) > 0.5
+                if opaque.any():
+                    fill_val = rgb[opaque].mean(dim=0)  # (3,)
+                else:
+                    fill_val = torch.tensor([0.5, 0.5, 0.5], device=rgb.device)
+                bg = fill_val.view(1, 1, 3).expand_as(rgb)
+            else:
+                bg = torch.full_like(rgb, self._FILL_VALUES[rgb_fill])
+
+            rgb_masked = rgb * (1.0 - mask_3ch) + bg * mask_3ch  # (H, W, 3)
 
             masks.append(mask)
             diff_maps.append(diff_mono)
