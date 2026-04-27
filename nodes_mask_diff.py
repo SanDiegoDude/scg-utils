@@ -14,8 +14,8 @@ class SCGMaskImageDifference:
     Outputs:
         cutout_rgba    – 4-channel IMAGE: target with changed regions transparent
                          (use with Save Image for transparent PNGs)
-        cutout_rgb     – 3-channel IMAGE: target with changed regions blacked out
-                         (safe for any downstream node expecting standard RGB)
+        cutout_rgb     – 3-channel IMAGE: target with changed regions replaced
+                         according to rgb_fill (safe for downstream RGB nodes)
         mask           – binary/feathered MASK usable by any mask-consuming node
         difference_map – grayscale IMAGE visualising raw per-pixel difference
                          (handy for tuning the threshold)
@@ -62,10 +62,10 @@ class SCGMaskImageDifference:
                     {"default": "average"},
                 ),
                 "rgb_fill": (
-                    ["average", "black", "gray", "white"],
+                    ["source", "average", "black", "gray", "white"],
                     {
-                        "default": "average",
-                        "tooltip": "Colour used to replace masked regions in the RGB output.",
+                        "default": "source",
+                        "tooltip": "Fill for masked regions in RGB output. 'source' pastes original source pixels (best for colour matching). Flat fills can cause NaN in downstream colour-transfer nodes.",
                     },
                 ),
                 "invert_mask": ("BOOLEAN", {"default": False}),
@@ -140,7 +140,9 @@ class SCGMaskImageDifference:
 
             rgba = torch.cat([t_rgb, alpha], dim=-1)  # (H, W, 4)
 
-            if rgb_fill == "average":
+            if rgb_fill == "source":
+                bg = s_rgb
+            elif rgb_fill == "average":
                 opaque = alpha.squeeze(-1) > 0.5
                 if opaque.any():
                     fill_val = t_rgb[opaque].mean(dim=0)  # (3,)
