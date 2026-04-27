@@ -94,8 +94,8 @@ class SCGMaskImageDifference:
         rgb_fill,
         invert_mask,
     ):
-        src = source_image
-        tgt = target_image
+        src = self._sanitize(source_image)
+        tgt = self._sanitize(target_image)
 
         if src.shape[1:3] != tgt.shape[1:3]:
             src = self._resize_to_match(src, tgt.shape[1], tgt.shape[2])
@@ -110,7 +110,11 @@ class SCGMaskImageDifference:
             s = src[min(i, src.shape[0] - 1)]
             t = tgt[min(i, tgt.shape[0] - 1)]
 
-            diff = torch.abs(s.float() - t.float())  # (H, W, C)
+            # Compare only the first 3 (RGB) channels
+            s_rgb = s[..., :3].float()
+            t_rgb = t[..., :3].float()
+
+            diff = torch.abs(s_rgb - t_rgb)  # (H, W, 3)
 
             if difference_mode == "average":
                 diff_mono = diff.mean(dim=-1)
@@ -132,38 +136,43 @@ class SCGMaskImageDifference:
 
             # mask=1 → changed, alpha = 1-mask → changed regions transparent
             alpha = (1.0 - mask).unsqueeze(-1)  # (H, W, 1)
-            rgb = t[..., :3].float()
             mask_3ch = mask.unsqueeze(-1)  # (H, W, 1)
 
-            rgba = torch.cat([rgb, alpha], dim=-1)  # (H, W, 4)
+            rgba = torch.cat([t_rgb, alpha], dim=-1)  # (H, W, 4)
 
             if rgb_fill == "average":
                 opaque = alpha.squeeze(-1) > 0.5
                 if opaque.any():
-                    fill_val = rgb[opaque].mean(dim=0)  # (3,)
+                    fill_val = t_rgb[opaque].mean(dim=0)  # (3,)
                 else:
-                    fill_val = torch.tensor([0.5, 0.5, 0.5], device=rgb.device)
-                bg = fill_val.view(1, 1, 3).expand_as(rgb)
+                    fill_val = torch.tensor([0.5, 0.5, 0.5], device=t_rgb.device)
+                bg = fill_val.view(1, 1, 3).expand_as(t_rgb)
             else:
-                bg = torch.full_like(rgb, self._FILL_VALUES[rgb_fill])
+                bg = torch.full_like(t_rgb, self._FILL_VALUES[rgb_fill])
 
-            rgb_masked = rgb * (1.0 - mask_3ch) + bg * mask_3ch  # (H, W, 3)
+            rgb_masked = t_rgb * (1.0 - mask_3ch) + bg * mask_3ch  # (H, W, 3)
 
             masks.append(mask)
             diff_maps.append(diff_mono)
             cutouts_rgba.append(rgba)
             cutouts_rgb.append(rgb_masked)
 
-        mask_out = torch.stack(masks, dim=0)
-        diff_rgb = torch.stack(diff_maps, dim=0).unsqueeze(-1).expand(-1, -1, -1, 3)
-        rgba_out = torch.stack(cutouts_rgba, dim=0)
-        rgb_out = torch.stack(cutouts_rgb, dim=0)
+        mask_out = torch.stack(masks, dim=0).clamp(0.0, 1.0)
+        diff_rgb = torch.stack(diff_maps, dim=0).unsqueeze(-1).expand(-1, -1, -1, 3).clamp(0.0, 1.0)
+        rgba_out = torch.stack(cutouts_rgba, dim=0).clamp(0.0, 1.0)
+        rgb_out = torch.stack(cutouts_rgb, dim=0).clamp(0.0, 1.0)
 
         return (rgba_out, rgb_out, mask_out, diff_rgb)
 
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _sanitize(img):
+        """Scrub NaN/inf and clamp to [0, 1] so upstream garbage can't propagate."""
+        out = torch.nan_to_num(img.float(), nan=0.0, posinf=1.0, neginf=0.0)
+        return out.clamp(0.0, 1.0)
 
     @staticmethod
     def _resize_to_match(img, target_h, target_w):
