@@ -2817,3 +2817,44 @@ class SCGStitchInpaintImage:
             results.append(base_img)
 
         return (torch.stack(results, dim=0),)
+
+
+class _AnyType(str):
+    """A special type that passes ComfyUI's type matching for any connection."""
+    def __ne__(self, __value: object) -> bool:
+        return False
+
+_any_type = _AnyType("*")
+
+
+class SCGSwitchNull:
+    """
+    A utility node that acts as a conditional pass-through gate.
+    When enabled, passes the input through unchanged. When disabled,
+    blocks downstream execution entirely using ComfyUI's ExecutionBlocker,
+    effectively acting as a programmatic disconnect.
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "on_true": (_any_type, {}),
+                "enabled": ("BOOLEAN", {"default": True}),
+            }
+        }
+
+    RETURN_TYPES = (_any_type,)
+    RETURN_NAMES = ("*",)
+    FUNCTION = "switch"
+    CATEGORY = "scg-utils"
+
+    @classmethod
+    def VALIDATE_INPUTS(cls, **kwargs):
+        return True
+
+    def switch(self, on_true, enabled):
+        if enabled:
+            return (on_true,)
+        from comfy_execution.graph_utils import ExecutionBlocker
+        return (ExecutionBlocker(None),)

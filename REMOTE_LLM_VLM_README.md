@@ -9,6 +9,7 @@ A multipurpose ComfyUI node for connecting to OpenAI-compatible API endpoints, i
 - **OpenAI Compatible**: Works with any OpenAI API-compatible endpoint
 - **Local Server Support**: Perfect for LM Studio, Ollama (with OpenAI compatibility), and other local servers
 - **Full Parameter Control**: Temperature, top_p, max_tokens, and more
+- **Retry Control**: Automatically retries transient server failures like HTTP 500 responses
 
 ## Use Cases
 
@@ -54,6 +55,7 @@ Works with:
 | `max_tokens` | INT | `512` | Maximum tokens to generate (1-8000) |
 | `seed` | INT | `42` | Seed value for ComfyUI caching control |
 | `bypass` | BOOLEAN | `False` | If True, returns user_prompt without API call |
+| `max_retries` | INT | `3` | Retry attempts for transient API failures such as timeouts, connection errors, HTTP 5xx responses, and LM Studio model crash/reload HTTP 400 responses |
 
 ### Optional Inputs
 
@@ -119,6 +121,7 @@ To use with LM Studio:
 - **Image Format**: Images are automatically converted to base64 PNG format
 - **Large Images**: Consider resizing images before the node to reduce processing time
 - **Timeout**: Requests timeout after 120 seconds
+- **Retries**: Transient API failures, including LM Studio model crash/reload responses, are retried up to `max_retries` times with short backoff delays
 - **Error Messages**: Check the console output for detailed error information
 - **Bypass Mode**: Use bypass mode to test workflows without making API calls
 - **Seed Parameter**: The seed doesn't affect the API call itself, but changing it forces ComfyUI to re-execute the node. Set to "fixed" in ComfyUI to prevent automatic re-runs when upstream nodes change, or use "randomize" to force new generations each time.

@@ -1,6 +1,7 @@
 import base64
 import io
 import json
+import time
 import requests
 from PIL import Image
 import torch
@@ -103,6 +104,10 @@ class SCGRemoteLLMVLM_OAI:
                     {"default": 42},
                 ),
                 "bypass": ("BOOLEAN", {"default": False}),
+                "max_retries": (
+                    "INT",
+                    {"default": 3, "min": 0, "max": 10, "step": 1},
+                ),
             },
             "optional": {
                 "image1": ("IMAGE",),
@@ -129,6 +134,7 @@ class SCGRemoteLLMVLM_OAI:
         max_tokens,
         seed,
         bypass,
+        max_retries=3,
         image1=None,
         image2=None,
         image3=None,
@@ -146,6 +152,7 @@ class SCGRemoteLLMVLM_OAI:
             temperature: Sampling temperature
             top_p: Nucleus sampling parameter
             max_tokens: Maximum tokens to generate
+            max_retries: Number of retry attempts for transient API failures
             seed: Seed value for ComfyUI caching control (not sent to API)
             bypass: If True, return user_prompt directly
             image1-4: Optional image inputs
@@ -166,6 +173,12 @@ class SCGRemoteLLMVLM_OAI:
             return ("Error: model_name is required.",)
         
         try:
+            try:
+                max_retries = int(max_retries)
+            except (TypeError, ValueError):
+                max_retries = 3
+            max_retries = max(0, max_retries)
+            
             # Build user content - process images first, then add text
             user_content = []
             
@@ -223,53 +236,94 @@ class SCGRemoteLLMVLM_OAI:
             print(f"[SCG Remote LLM/VLM] Model: {model_name}")
             print(f"[SCG Remote LLM/VLM] Temperature: {temperature}, Top-p: {top_p}, Max tokens: {max_tokens}")
             
-            # Make API request
-            response = requests.post(
-                api_url,
-                headers=headers,
-                json=payload,
-                timeout=120  # 2 minute timeout
-            )
-            
-            # Check for HTTP errors
-            response.raise_for_status()
-            
-            # Parse response
-            response_data = response.json()
-            
-            # Extract text from OpenAI-format response
-            if "choices" in response_data and len(response_data["choices"]) > 0:
-                choice = response_data["choices"][0]
+            total_attempts = max_retries + 1
+            for attempt in range(total_attempts):
+                attempt_label = f"{attempt + 1}/{total_attempts}"
+                if total_attempts > 1:
+                    print(f"[SCG Remote LLM/VLM] API attempt {attempt_label}")
                 
-                if "message" in choice and "content" in choice["message"]:
-                    result_text = choice["message"]["content"]
+                try:
+                    response = requests.post(
+                        api_url,
+                        headers=headers,
+                        json=payload,
+                        timeout=120  # 2 minute timeout
+                    )
                     
-                    # Log usage info if available
-                    if "usage" in response_data:
-                        usage = response_data["usage"]
-                        print(f"[SCG Remote LLM/VLM] Token usage: {usage}")
+                    # Check for HTTP errors
+                    response.raise_for_status()
                     
-                    print(f"[SCG Remote LLM/VLM] Response received successfully")
-                    return (result_text,)
-                else:
-                    return (f"Error: Unexpected response format - no message content. Response: {json.dumps(response_data, indent=2)}",)
-            else:
-                return (f"Error: Unexpected response format - no choices. Response: {json.dumps(response_data, indent=2)}",)
-        
-        except requests.exceptions.Timeout:
-            return ("Error: Request timed out after 120 seconds.",)
-        
-        except requests.exceptions.ConnectionError as e:
-            return (f"Error: Connection failed. Is the server running? Details: {str(e)}",)
-        
-        except requests.exceptions.HTTPError as e:
-            error_msg = f"Error: HTTP {response.status_code}"
-            try:
-                error_detail = response.json()
-                error_msg += f" - {json.dumps(error_detail, indent=2)}"
-            except:
-                error_msg += f" - {response.text}"
-            return (error_msg,)
+                    # Parse response
+                    response_data = response.json()
+                    
+                    # Extract text from OpenAI-format response
+                    if "choices" in response_data and len(response_data["choices"]) > 0:
+                        choice = response_data["choices"][0]
+                        
+                        if "message" in choice and "content" in choice["message"]:
+                            result_text = choice["message"]["content"]
+                            
+                            # Log usage info if available
+                            if "usage" in response_data:
+                                usage = response_data["usage"]
+                                print(f"[SCG Remote LLM/VLM] Token usage: {usage}")
+                            
+                            print(f"[SCG Remote LLM/VLM] Response received successfully")
+                            return (result_text,)
+                        else:
+                            return (f"Error: Unexpected response format - no message content. Response: {json.dumps(response_data, indent=2)}",)
+                    else:
+                        return (f"Error: Unexpected response format - no choices. Response: {json.dumps(response_data, indent=2)}",)
+                
+                except requests.exceptions.Timeout:
+                    error_msg = "Error: Request timed out after 120 seconds."
+                    should_retry = True
+                
+                except requests.exceptions.ConnectionError as e:
+                    error_msg = f"Error: Connection failed. Is the server running? Details: {str(e)}"
+                    should_retry = True
+                
+                except requests.exceptions.HTTPError as e:
+                    response = e.response
+                    status_code = response.status_code if response is not None else "unknown"
+                    error_msg = f"Error: HTTP {status_code}"
+                    if response is not None:
+                        try:
+                            error_detail = response.json()
+                            error_msg += f" - {json.dumps(error_detail, indent=2)}"
+                        except Exception:
+                            error_msg += f" - {response.text}"
+                    else:
+                        error_msg += f" - {str(e)}"
+                    error_text = error_msg.lower()
+                    should_retry = (
+                        isinstance(status_code, int)
+                        and (
+                            status_code >= 500
+                            or (
+                                status_code == 400
+                                and (
+                                    "model has crashed" in error_text
+                                    or "model reloaded" in error_text
+                                )
+                            )
+                        )
+                    )
+                
+                except requests.exceptions.RequestException as e:
+                    error_msg = f"Error: Request failed. Details: {str(e)}"
+                    should_retry = True
+                
+                if should_retry and attempt < max_retries:
+                    retry_delay = min(2 ** attempt, 8)
+                    print(f"[SCG Remote LLM/VLM] {error_msg}")
+                    print(f"[SCG Remote LLM/VLM] Retrying in {retry_delay}s...")
+                    time.sleep(retry_delay)
+                    continue
+                
+                if should_retry and max_retries > 0:
+                    error_msg = f"{error_msg} (failed after {total_attempts} attempts)"
+                return (error_msg,)
         
         except Exception as e:
             import traceback
