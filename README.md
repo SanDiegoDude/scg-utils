@@ -37,10 +37,11 @@ A collection of handy ComfyUI nodes for image manipulation, retro effects, AI in
 - **SCG Image Stack** - Stack up to 4 images in customizable grid layouts
 - **SCG Image Stack XL** - Extended version supporting up to 8 images
 - **SCG Scale to Megapixel Size** - Scale images to specific megapixel targets with dimension constraints
-- **SCG Scale Dimension to Size** - Scale images by targeting shortest/longest/width/height dimension
+- **SCG Scale Dimension to Size** - Scale images by targeting shortest/longest/width/height dimension, or fit into a centered square with padding
 
 ### Resolution & Layout
 - **SCG Resolution Selector** - Flexible resolution calculator with aspect ratio presets
+- **SCG Megapixel Selector** - Calculate width/height from a megapixel target and aspect ratio
 
 ### Masking & Inpainting
 - **SCG Trim Image to Mask** - Trim images to masked content with context expansion
@@ -161,11 +162,35 @@ operation: A Less Than B
 ```
 Use: SCG Scale Dimension to Size
 target_size: 1024
-apply_to: shortest (or longest, width, height)
+apply_to: shortest (or longest, width, height, square (padded))
 dimension_constraint: resize
 divisible_by: 8
 → Scales image so the shortest side is 1024px, 
   then adjusts both dimensions to be divisible by 8
+```
+
+### Fit Image into Padded Square
+```
+Use: SCG Scale Dimension to Size
+target_size: 1024
+apply_to: square (padded)
+dimension_constraint: resize
+divisible_by: 8
+→ Scales image so the longest side fits 1024px, then center-pads
+  with black to a 1024x1024 square. Divisibility applies to the
+  square size only (e.g. target_size 1030 → 1024x1024 canvas).
+  With dimension_constraint: crop, the longest side is scaled to
+  target_size and any overflow beyond the square is center-cropped.
+```
+
+### Pick Resolution by Megapixel Target
+```
+Use: SCG Megapixel Selector
+megapixels: 1.00
+aspect_ratio: landscape (16:9)
+divisible_by: 16
+→ Outputs width/height closest to 1.00MP at 16:9 with both
+  dimensions divisible by 16 (e.g. 1328x752 ≈ 1.00MP)
 ```
 
 ### Load and Trim Audio

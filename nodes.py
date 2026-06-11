@@ -1228,6 +1228,8 @@ class SCGScaleDimensionToSize:
     A utility node that scales images by targeting a specific dimension size.
     Can target the shortest side, longest side, width, or height.
     Maintains aspect ratio while scaling to the target dimension.
+    Also supports "square (padded)" mode which fits the longest side to the
+    target size and center-pads the result onto a square canvas.
     Supports multiple interpolation methods for high-quality results.
     Optionally constrains dimensions to be divisible by a specified value.
     """
@@ -1247,7 +1249,8 @@ class SCGScaleDimensionToSize:
                     "shortest",
                     "longest",
                     "width",
-                    "height"
+                    "height",
+                    "square (padded)"
                 ], {
                     "default": "shortest"
                 }),
@@ -1328,7 +1331,8 @@ class SCGScaleDimensionToSize:
         Args:
             image: Input image tensor in ComfyUI format (batch, height, width, channels)
             target_size: Target size for the selected dimension
-            apply_to: Which dimension to target ("shortest", "longest", "width", "height")
+            apply_to: Which dimension to target ("shortest", "longest", "width", "height",
+                "square (padded)")
             scaling_method: Interpolation method to use
             dimension_constraint: How to handle non-divisible dimensions ("resize", "crop", "none")
             divisible_by: Value that dimensions should be divisible by
@@ -1336,6 +1340,11 @@ class SCGScaleDimensionToSize:
         Returns:
             Tuple containing the scaled image, width, and height
         """
+        if apply_to == "square (padded)":
+            return self._scale_square_padded(
+                image, target_size, scaling_method, dimension_constraint, divisible_by
+            )
+        
         batch, height, width, channels = image.shape
         
         # Determine which dimension to use for scaling
@@ -1381,6 +1390,58 @@ class SCGScaleDimensionToSize:
             final_width, final_height = new_width, new_height
         
         return (scaled_image, final_width, final_height)
+    
+    def _scale_square_padded(self, image, target_size, scaling_method, dimension_constraint, divisible_by):
+        """
+        Scale image so its longest side fits the target size, then center-pad
+        onto a square canvas. Divisibility constraints apply only to the final
+        square size since the whole image ends up inside it.
+        """
+        batch, height, width, channels = image.shape
+        
+        # Final square size: round target down to the nearest divisible value
+        if dimension_constraint == "none" or divisible_by <= 1:
+            final_size = target_size
+        else:
+            final_size = max(divisible_by, (target_size // divisible_by) * divisible_by)
+        
+        # In crop mode, scale longest side to target_size and crop any overflow
+        # beyond the final square; otherwise scale directly into the square
+        scale_target = target_size if dimension_constraint == "crop" else final_size
+        scale_factor = scale_target / max(width, height)
+        new_width = max(1, int(width * scale_factor))
+        new_height = max(1, int(height * scale_factor))
+        
+        batch_info = f" (batch of {batch} images)" if batch > 1 else ""
+        print(f"[SCG Scale Dimension to Size] Scaling{batch_info} from {width}x{height} to {new_width}x{new_height}, padding to {final_size}x{final_size} square using {scaling_method}")
+        
+        if new_height == height and new_width == width:
+            scaled_image = image
+        else:
+            scaled_image = self._scale_image(image, new_height, new_width, scaling_method)
+        
+        # Center-crop anything exceeding the final square (only possible in crop mode)
+        if new_width > final_size or new_height > final_size:
+            crop_w = min(new_width, final_size)
+            crop_h = min(new_height, final_size)
+            crop_x = (new_width - crop_w) // 2
+            crop_y = (new_height - crop_h) // 2
+            scaled_image = scaled_image[:, crop_y:crop_y + crop_h, crop_x:crop_x + crop_w, :]
+            print(f"[SCG Scale Dimension to Size] Applied crop constraint: {new_width}x{new_height} -> {crop_w}x{crop_h}")
+        
+        # Center-pad to the final square with black
+        pad_batch, pad_height, pad_width, pad_channels = scaled_image.shape
+        if pad_height != final_size or pad_width != final_size:
+            padded = torch.zeros(
+                (pad_batch, final_size, final_size, pad_channels),
+                dtype=scaled_image.dtype, device=scaled_image.device
+            )
+            pad_y = (final_size - pad_height) // 2
+            pad_x = (final_size - pad_width) // 2
+            padded[:, pad_y:pad_y + pad_height, pad_x:pad_x + pad_width, :] = scaled_image
+            scaled_image = padded
+        
+        return (scaled_image, final_size, final_size)
     
     def _scale_with_torch(self, image, new_height, new_width, method):
         """Scale image using PyTorch interpolation."""
@@ -1534,6 +1595,103 @@ class SCGResolutionSelector:
                     "ratio": [ratio],
                 },
                 "result": (d.width, d.height),
+            }
+
+        raise ValueError(f"Could't find aspect ratio in string `{aspect_ratio}`")
+
+
+class SCGMegapixelSelector:
+    """
+    A resolution selector node that targets a total pixel count in megapixels.
+    Calculates width/height for the chosen aspect ratio so the total pixel
+    count is as close as possible to the megapixel target, with both
+    dimensions rounded to be divisible by a configurable value.
+    """
+    
+    DEFAULT_RATIOS = [
+        "1:1",
+        "landscape (5:4)",
+        "landscape (4:3)",
+        "landscape (3:2)",
+        "landscape (16:10)",
+        "landscape (16:9)",
+        "landscape (21:9)",
+        "landscape (2:1)",
+        "landscape (3:1)",
+        "landscape (4:1)",
+        "portrait (4:5)",
+        "portrait (3:4)",
+        "portrait (2:3)",
+        "portrait (10:9)",
+        "portrait (9:16)",
+        "portrait (9:21)",
+        "portrait (1:2)",
+        "portrait (1:3)",
+        "portrait (1:4)",
+    ]
+    
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "megapixels": (
+                    "FLOAT",
+                    {
+                        "default": 1.00,
+                        "min": 0.01,
+                        "max": 64.0,
+                        "step": 0.01,
+                    },
+                ),
+                "aspect_ratio": (cls.DEFAULT_RATIOS,),
+                "divisible_by": (
+                    "INT",
+                    {
+                        "default": 16,
+                        "min": 1,
+                        "max": 256,
+                        "step": 1,
+                    },
+                ),
+            },
+        }
+
+    RETURN_TYPES = ("INT", "INT")
+    RETURN_NAMES = ("width", "height")
+    FUNCTION = "calculate"
+    OUTPUT_NODE = False
+    CATEGORY = "scg-utils"
+
+    def calculate(
+        self,
+        megapixels: float,
+        aspect_ratio: str,
+        divisible_by: int,
+    ):
+        """Calculate width and height targeting a total megapixel count."""
+        if m := re.search(r"(\d+):(\d+)", aspect_ratio):
+            ratio: float = int(m.group(2)) / int(m.group(1))  # height / width
+            total_pixels = megapixels * 1_000_000
+            
+            width = math.sqrt(total_pixels / ratio)
+            height = width * ratio
+            
+            # Round each dimension to the nearest divisible value
+            width = max(divisible_by, round(width / divisible_by) * divisible_by)
+            height = max(divisible_by, round(height / divisible_by) * divisible_by)
+            
+            actual_mp = (width * height) / 1_000_000
+            print(f"[SCG Megapixel Selector] {megapixels:.2f}MP @ {aspect_ratio} -> {width}x{height} ({actual_mp:.2f}MP, divisible by {divisible_by})")
+            
+            # return as dict with `ui` key to trigger onExecuted
+            return {
+                "ui": {
+                    "width": [width],
+                    "height": [height],
+                    "ratio": [ratio],
+                    "megapixels": [actual_mp],
+                },
+                "result": (width, height),
             }
 
         raise ValueError(f"Could't find aspect ratio in string `{aspect_ratio}`")
