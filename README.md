@@ -49,8 +49,13 @@ A collection of handy ComfyUI nodes for image manipulation, retro effects, AI in
 
 ### AI & LLM Integration
 - **SCG Remote LLM/VLM - OAI Standard** - Connect to OpenAI-compatible APIs (OpenAI, LM Studio, etc.)
-- **SCG TextEncoderQwenEditPlus** - Qwen image editing with up to 4 reference images
+- **SCG TextEncoderQwenEditPlus** - Qwen image editing/composition with up to 4 reference images, per-image conditioning modes (vision vs. reference latent), reference-latent placement method, and composition-oriented prompt templates
 - **RAAG Model Patch** - Ratio Aware Adaptive Guidance for diffusion models
+
+### Conditioning & Sampling
+- **SCG Reference Text Encoder Plus** - Single-reference-image Qwen encoder with `vision_only`, compose/edit/custom templates, reference-latent placement, and `vision_megapixels`
+- **SCG Conditioning Mixer** - Single-node mix of two conditionings with per-source strength, timestep window, taper, and merge style, plus an optional text-only branch
+- **SCG LoRA Scheduler** - Taper a LoRA's model strength across the denoise (`strength_start` → `strength_end` inside a clean `start_percent`/`end_percent` window, with interpolation); optional static CLIP application
 
 ### Text Processing
 - **SCG Wildcard Variable Processor** - Replace wildcard variables in text strings

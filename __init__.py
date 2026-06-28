@@ -17,7 +17,9 @@ from .nodes import (
     SCGFastVideoFromAudio,
     SCGSwitchNull,
 )
-from .nodes_qwen import SCGTextEncoderQwenEditPlus
+from .nodes_qwen import SCGTextEncoderQwenEditPlus, SCGReferenceTextEncoderPlus
+from .nodes_conditioning import SCGConditioningTrajectory
+from .nodes_lora_scheduler import SCGLoRAScheduler
 from .nodes_remote_llm import SCGRemoteLLMVLM_OAI
 from .nodes_raag import RAAG_ModelPatch
 from .nodes_color_palette import SCGColorPaletteTransformer
@@ -29,6 +31,9 @@ NODE_CLASS_MAPPINGS = {
     "SCGImageStack": SCGImageStack,
     "SCGImageStackXL": SCGImageStackXL,
     "SCGTextEncoderQwenEditPlus": SCGTextEncoderQwenEditPlus,
+    "SCGReferenceTextEncoderPlus": SCGReferenceTextEncoderPlus,
+    "SCGConditioningTrajectory": SCGConditioningTrajectory,
+    "SCGLoRAScheduler": SCGLoRAScheduler,
     "SCGWildcardVariableProcessor": SCGWildcardVariableProcessor,
     "SCGScaleToMegapixels": SCGScaleToMegapixels,
     "SCGScaleDimensionToSize": SCGScaleDimensionToSize,
@@ -55,6 +60,9 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "SCGImageStack": "SCG Image Stack",
     "SCGImageStackXL": "SCG Image Stack XL",
     "SCGTextEncoderQwenEditPlus": "SCG TextEncoderQwenEditPlus",
+    "SCGReferenceTextEncoderPlus": "SCG Reference Text Encoder Plus",
+    "SCGConditioningTrajectory": "SCG Conditioning Mixer",
+    "SCGLoRAScheduler": "SCG LoRA Scheduler",
     "SCGWildcardVariableProcessor": "SCG Wildcard Variable Processor",
     "SCGScaleToMegapixels": "SCG Scale to Megapixel Size",
     "SCGScaleDimensionToSize": "SCG Scale Dimension to Size",
