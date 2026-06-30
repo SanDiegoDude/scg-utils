@@ -1760,6 +1760,19 @@ class SCGTrimImageToMask:
             print(f"[SCG Trim] binary_fill_holes unavailable, skipping ({exc})")
             return mask_np
 
+    def _fill_holes_tensor(self, mask_tensor, fill_holes: bool, device):
+        """Fill enclosed holes in a [H, W] mask tensor (binarized round-trip).
+
+        Run this AFTER dilation: mask_expand can close a thin channel that was
+        connecting an interior gap (e.g. earrings cut out of a head mask) to the
+        border, turning it into a true hole that should then be filled.
+        """
+        if not fill_holes:
+            return mask_tensor
+        mask_np = (mask_tensor.detach().cpu().numpy() >= 0.5).astype(np.float32)
+        mask_np = self._fill_mask_holes(mask_np, True)
+        return torch.from_numpy(mask_np).to(device=device, dtype=mask_tensor.dtype)
+
     def _dilate_mask(self, mask_tensor, factor: float, bbox_width: int, bbox_height: int):
         """Dilate the binary mask using max pooling to avoid extra deps."""
         if factor <= 1.0:
@@ -1903,10 +1916,9 @@ class SCGTrimImageToMask:
                 img_sample = image[i]
                 mask_sample = mask[i].float()
                 
-                # Prepare mask (fill holes, dilate, invert as configured)
+                # Prepare mask (binarize, dilate, then fill holes, invert as configured)
                 mask_np = mask_sample.detach().cpu().numpy()
                 mask_np = (mask_np >= 0.5).astype(np.float32)
-                mask_np = self._fill_mask_holes(mask_np, mask_fill_holes)
                 mask_processed = torch.from_numpy(mask_np).to(device=device, dtype=img_sample.dtype)
                 
                 # Dilate mask if requested
@@ -1917,6 +1929,9 @@ class SCGTrimImageToMask:
                         base_w = x_max - x_min + 1
                         base_h = y_max - y_min + 1
                         mask_processed = self._dilate_mask(mask_processed, mask_expand, base_w, base_h)
+                
+                # Fill holes AFTER dilation (so channels closed by mask_expand fill too)
+                mask_processed = self._fill_holes_tensor(mask_processed, mask_fill_holes, device)
                 
                 # Invert mask if requested
                 if mask_invert:
@@ -1963,10 +1978,9 @@ class SCGTrimImageToMask:
             img_sample = image[i]
             mask_sample = mask[i].float()
 
-            # Prepare binary mask for bbox (fill holes, no inversion yet)
+            # Prepare binary mask for bbox (no inversion yet; holes filled after dilation)
             mask_np = mask_sample.detach().cpu().numpy()
             mask_np = (mask_np >= 0.5).astype(np.float32)
-            mask_np = self._fill_mask_holes(mask_np, mask_fill_holes)
             mask_for_bbox = torch.from_numpy(mask_np).to(device=device, dtype=img_sample.dtype)
 
             bbox = self._compute_bbox(mask_for_bbox)
@@ -1994,6 +2008,10 @@ class SCGTrimImageToMask:
 
             # Dilate mask to give edges breathing room
             dilated_mask = self._dilate_mask(mask_for_bbox, mask_expand, base_w, base_h)
+            # Fill holes AFTER dilation: mask_expand can close a thin channel
+            # (e.g. an earring gap) that was leaking to the border, turning it
+            # into a true enclosed hole that should now be filled.
+            dilated_mask = self._fill_holes_tensor(dilated_mask, mask_fill_holes, device)
             bbox = self._compute_bbox(dilated_mask)
             if bbox is None:
                 bbox = (x_min, y_min, x_max, y_max)

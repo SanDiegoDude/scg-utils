@@ -151,21 +151,22 @@ class SCGConditioningTrajectory:
     def INPUT_TYPES(cls):
         pct = {"min": 0.0, "max": 1.0, "step": 0.001}
         amt = {"min": 0.0, "max": 1.0, "step": 0.01}
-        # Source strengths can amplify up to 2x (great for transfer); merge
+        # Source strengths can amplify up to 4x (great for transfer; tends to
+        # break at the high end, but useful to explore with the taper). Merge
         # weights stay 0..1 since they're A-vs-B / text blend proportions.
-        amp = {"min": 0.0, "max": 2.0, "step": 0.01}
+        amp = {"min": 0.0, "max": 4.0, "step": 0.01}
         return {
             "required": {},
             "optional": {
                 "conditioning_a": ("CONDITIONING",),
-                "a_strength": ("FLOAT", dict(amp, default=1.0, tooltip="Scales A toward zeroed conditioning (1.0 = full, 0.0 = silent, up to 2.0 = amplified). Also the 'max' endpoint when tapering.")),
+                "a_strength": ("FLOAT", dict(amp, default=1.0, tooltip="Scales A toward zeroed conditioning (1.0 = full, 0.0 = silent, up to 4.0 = amplified; high values usually break). Also the 'max' endpoint when tapering.")),
                 "a_start": ("FLOAT", dict(pct, default=0.0)),
                 "a_end": ("FLOAT", dict(pct, default=1.0)),
                 "a_taper": (cls.TAPER_MODES, {"default": "off", "tooltip": "Ramp A's strength across its window. normal = strength->target, reverse = target->strength."}),
                 "a_taper_target": ("FLOAT", dict(amp, default=0.0, tooltip="The other endpoint of A's strength taper.")),
 
                 "conditioning_b": ("CONDITIONING",),
-                "b_strength": ("FLOAT", dict(amp, default=1.0, tooltip="Scales B toward zeroed conditioning (1.0 = full, 0.0 = silent, up to 2.0 = amplified). Also the 'max' endpoint when tapering.")),
+                "b_strength": ("FLOAT", dict(amp, default=1.0, tooltip="Scales B toward zeroed conditioning (1.0 = full, 0.0 = silent, up to 4.0 = amplified; high values usually break). Also the 'max' endpoint when tapering.")),
                 "b_start": ("FLOAT", dict(pct, default=0.0)),
                 "b_end": ("FLOAT", dict(pct, default=1.0)),
                 "b_taper": (cls.TAPER_MODES, {"default": "off", "tooltip": "Ramp B's strength across its window. normal = strength->target, reverse = target->strength."}),
@@ -180,7 +181,7 @@ class SCGConditioningTrajectory:
                 "text_prompt": ("STRING", {"multiline": True, "dynamicPrompts": True, "default": ""}),
                 "text_template": (TEMPLATE_MODES, {"default": "compose"}),
                 "text_custom_template": ("STRING", {"multiline": True, "default": ""}),
-                "text_strength": ("FLOAT", dict(amp, default=1.0, tooltip="Scales the text-only cond toward zero (presence knob, esp. in combine mode). Up to 2.0 = amplified.")),
+                "text_strength": ("FLOAT", dict(amp, default=1.0, tooltip="Scales the text-only cond toward zero (presence knob, esp. in combine mode). Up to 4.0 = amplified; high values usually break.")),
                 "text_start": ("FLOAT", dict(pct, default=0.0)),
                 "text_end": ("FLOAT", dict(pct, default=1.0)),
                 "text_taper": (cls.TAPER_MODES, {"default": "off", "tooltip": "Ramp the text cond's strength across its window."}),

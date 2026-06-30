@@ -8,6 +8,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **SCG Reference Text Encoder Plus** - optional `mask` (+ `mask_strength`,
+  `mask_feather`, `invert_mask`). Keeps the mask=1 region and attenuates the rest
+  into a low-info "ghost" (heavy blur + desaturate + contrast crush) before
+  encoding, to fight background bleed without a hard fill. Applies to both the
+  vision and reference-latent channels. Masks must match the image size exactly
+  (no auto-resize; mismatches raise an error).
+
+### Changed
+- **SCG Conditioning Mixer** - source strengths (`a/b/text_strength` and taper
+  targets) now go up to **4.0** (was 2.0) for aggressive transfer; high values
+  usually break, but useful to explore with the taper.
+- **SCG TextEncoderQwenEditPlus** / **SCG Reference Text Encoder Plus** -
+  `vision_megapixels` max raised to **8.8** (~4K) for high-detail encoding on
+  large images (default unchanged at 1.0).
+
+### Fixed
+- **SCG Trim Image to Mask** - `mask_fill_holes` now runs *after* `mask_expand`
+  dilation, so holes that only become enclosed once dilation seals a thin channel
+  (e.g. earrings cut out of a head mask) are correctly filled.
+
 - **SCG LoRA Scheduler** (`SCGLoRAScheduler`) - Tapers a LoRA's *model* (unet)
   strength across the denoise trajectory, the same way SCG Conditioning Mixer
   tapers conditioning. Controls:

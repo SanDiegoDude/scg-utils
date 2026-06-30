@@ -2,6 +2,106 @@ import node_helpers
 import comfy.utils
 import math
 
+import torch
+import torch.nn.functional as F
+
+
+# ---------------------------------------------------------------------------
+# Mask-based salience attenuation (anti background-bleed)
+#
+# We can't give the Qwen2.5-VL encoder a real alpha channel, and the encoder's
+# global self-attention smears masked-region info into every other token, so
+# zeroing tokens after the fact does little. The effective lever is to act in
+# pixel space *before* encoding: turn the masked-out region into a low-info
+# "ghost" (heavy blur + desaturate + contrast crush toward mid-gray) so the
+# encoder finds nothing salient there. A feathered mask edge avoids the hard
+# contour that itself causes bleed. This is a weight, not a hard cut.
+# ---------------------------------------------------------------------------
+
+
+def _gaussian_blur(x, sigma):
+    """Separable Gaussian blur on a [B, C, H, W] tensor (reflect padded)."""
+    if sigma is None or sigma <= 0.0:
+        return x
+    radius = max(1, int(round(sigma * 3.0)))
+    ksize = radius * 2 + 1
+    coords = torch.arange(ksize, dtype=x.dtype, device=x.device) - radius
+    k1d = torch.exp(-(coords ** 2) / (2.0 * sigma * sigma))
+    k1d = k1d / k1d.sum()
+    c = x.shape[1]
+    kx = k1d.view(1, 1, 1, ksize).repeat(c, 1, 1, 1)
+    ky = k1d.view(1, 1, ksize, 1).repeat(c, 1, 1, 1)
+    x = F.pad(x, (radius, radius, 0, 0), mode="reflect")
+    x = F.conv2d(x, kx, groups=c)
+    x = F.pad(x, (0, 0, radius, radius), mode="reflect")
+    x = F.conv2d(x, ky, groups=c)
+    return x
+
+
+def _low_info(img):
+    """Build a low-information 'ghost' of a [B, C, H, W] image: heavily blurred,
+    desaturated, and contrast-crushed toward mid-gray, but still faintly present."""
+    b, c, h, w = img.shape
+    sw = max(1, w // 16)
+    sh = max(1, h // 16)
+    down = comfy.utils.common_upscale(img, sw, sh, "area", "disabled")
+    blurred = comfy.utils.common_upscale(down, w, h, "bilinear", "disabled")
+    if c >= 3:
+        lum = 0.299 * blurred[:, 0:1] + 0.587 * blurred[:, 1:2] + 0.114 * blurred[:, 2:3]
+        lum = lum.repeat(1, c, 1, 1)
+        desat = blurred * 0.3 + lum * 0.7
+    else:
+        desat = blurred
+    crushed = 0.5 + (desat - 0.5) * 0.5
+    return crushed.clamp(0.0, 1.0)
+
+
+def _normalize_mask(mask, b, h, w, dtype, device, node_name):
+    m = mask
+    if m.dim() == 2:
+        m = m.unsqueeze(0)
+    if m.dim() == 3:
+        m = m.unsqueeze(1)
+    elif m.dim() == 4 and m.shape[1] != 1 and m.shape[-1] == 1:
+        m = m.movedim(-1, 1)
+    if m.dim() != 4 or m.shape[1] != 1:
+        raise ValueError("{}: unexpected mask shape {}.".format(node_name, tuple(mask.shape)))
+
+    mh, mw = m.shape[-2], m.shape[-1]
+    if (mh, mw) != (h, w):
+        raise ValueError(
+            "{}: mask size {}x{} does not match image size {}x{}. Resize the mask "
+            "to match the image (this node does not auto-resize).".format(node_name, mw, mh, w, h))
+
+    mb = m.shape[0]
+    if mb != b:
+        if mb == 1:
+            m = m.repeat(b, 1, 1, 1)
+        elif b == 1:
+            m = m[:1]
+        else:
+            raise ValueError(
+                "{}: mask batch {} does not match image batch {}.".format(node_name, mb, b))
+    return m.to(device=device, dtype=dtype)
+
+
+def apply_mask_attenuation(image, mask, strength, feather, invert, node_name):
+    """Attenuate the un-kept region of a [B, H, W, C] image toward a low-info ghost.
+
+    Mask convention: 1.0 = keep (subject), 0.0 = attenuate (background). invert flips it.
+    """
+    img = image.movedim(-1, 1)
+    b, c, h, w = img.shape
+    m = _normalize_mask(mask, b, h, w, img.dtype, img.device, node_name)
+    if invert:
+        m = 1.0 - m
+    if feather > 0.0:
+        m = _gaussian_blur(m, float(feather)).clamp(0.0, 1.0)
+    atten = ((1.0 - m) * float(strength)).clamp(0.0, 1.0)
+    low = _low_info(img)
+    out = img * (1.0 - atten) + low * atten
+    return out.movedim(1, -1)
+
 
 # Instruction templates fed to the Qwen2.5-VL text encoder. The {} is replaced
 # with the user's prompt. The "system" framing strongly biases how the model
@@ -88,7 +188,7 @@ class SCGTextEncoderQwenEditPlus:
                 "reference_latents_method": (cls.REF_METHODS, {"default": "index"}),
                 "instruction_template": (TEMPLATE_MODES, {"default": "compose"}),
                 "custom_template": ("STRING", {"multiline": True, "default": ""}),
-                "vision_megapixels": ("FLOAT", {"default": 1.0, "min": 0.05, "max": 2.0, "step": 0.01}),
+                "vision_megapixels": ("FLOAT", {"default": 1.0, "min": 0.05, "max": 8.8, "step": 0.01, "tooltip": "Megapixels the image is resized to for the vision (VL) channel. Default ~1.0. Up to 8.8 (~4K) for serious detail on large images; high values are slow and VRAM-heavy."}),
                 "target_width": ("INT", {"default": 896, "min": 128, "max": 2048, "step": 32}),
                 "target_height": ("INT", {"default": 896, "min": 128, "max": 2048, "step": 32}),
             }
@@ -200,10 +300,14 @@ class SCGReferenceTextEncoderPlus:
                 "vision_only": ("BOOLEAN", {"default": False, "tooltip": "Use the vision (VL) channel only and skip all VAE / reference-latent work. Use for vision-only models (e.g. Krea-2) where reference latents are no-ops."}),
                 "vae": ("VAE",),
                 "image": ("IMAGE",),
+                "mask": ("MASK", {"tooltip": "Optional. Keeps the mask=1 region (subject) and attenuates the rest (background) into a low-info ghost before encoding, to fight background bleed. Must match the image size exactly (no auto-resize)."}),
+                "mask_strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "How strongly to attenuate the background. 0 = mask ignored, 1 = full low-info ghost (blurred/desaturated, still faintly present)."}),
+                "mask_feather": ("FLOAT", {"default": 8.0, "min": 0.0, "max": 256.0, "step": 1.0, "tooltip": "Gaussian feather (pixels) on the mask edge. Softens the keep/attenuate boundary so the mask outline itself doesn't bleed in."}),
+                "invert_mask": ("BOOLEAN", {"default": False, "tooltip": "Flip mask polarity. Off = keep mask=1 (subject). On = keep mask=0."}),
                 "reference_latents_method": (cls.REF_METHODS, {"default": "index"}),
                 "instruction_template": (TEMPLATE_MODES, {"default": "compose"}),
                 "custom_template": ("STRING", {"multiline": True, "default": ""}),
-                "vision_megapixels": ("FLOAT", {"default": 1.0, "min": 0.05, "max": 2.0, "step": 0.01}),
+                "vision_megapixels": ("FLOAT", {"default": 1.0, "min": 0.05, "max": 8.8, "step": 0.01, "tooltip": "Megapixels the image is resized to for the vision (VL) channel. Default ~1.0. Up to 8.8 (~4K) for serious detail on large images; high values are slow and VRAM-heavy."}),
                 "target_width": ("INT", {"default": 896, "min": 128, "max": 2048, "step": 32}),
                 "target_height": ("INT", {"default": 896, "min": 128, "max": 2048, "step": 32}),
             }
@@ -214,6 +318,7 @@ class SCGReferenceTextEncoderPlus:
     CATEGORY = "scg-utils/conditioning"
 
     def encode(self, clip, prompt, vision_only=False, vae=None, image=None,
+               mask=None, mask_strength=1.0, mask_feather=8.0, invert_mask=False,
                reference_latents_method="index",
                instruction_template="compose", custom_template="",
                vision_megapixels=1.0, target_width=896, target_height=896):
@@ -223,6 +328,10 @@ class SCGReferenceTextEncoderPlus:
         image_prompt = ""
 
         if image is not None:
+            if mask is not None and mask_strength > 0.0:
+                image = apply_mask_attenuation(
+                    image, mask, mask_strength, mask_feather, invert_mask,
+                    "SCG Reference Text Encoder Plus")
             use_reference = not vision_only
             samples = image.movedim(-1, 1)
 
