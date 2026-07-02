@@ -24,6 +24,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   large images (default unchanged at 1.0).
 
 ### Fixed
+- **SCG LoRA Scheduler** - stacking two or more schedulers on the same model no
+  longer crashes on the second generation (`'NoneType' object is not callable`).
+  Adapters are now applied via `register_forward_hook` (removed by identity,
+  stack additively) instead of the stock forward-*replacement* injection, whose
+  non-LIFO eject left a stale bypass with `original_forward=None` on the shared
+  module.
 - **SCG Trim Image to Mask** - `mask_fill_holes` now runs *after* `mask_expand`
   dilation, so holes that only become enclosed once dilation seals a thin channel
   (e.g. earrings cut out of a head mask) are correctly filled.

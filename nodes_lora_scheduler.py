@@ -8,6 +8,8 @@ import comfy.utils
 import comfy.lora
 import comfy.lora_convert
 import comfy.weight_adapter
+import comfy.model_management
+import comfy.patcher_extension
 
 
 # ---------------------------------------------------------------------------
@@ -36,7 +38,15 @@ import comfy.weight_adapter
 #   * Bypass mode adds a small per-step forward cost (the low-rank matmuls), but
 #     avoids all weight re-baking.
 #   * Stacking multiple SCG LoRA Schedulers works: each owns its own injection
-#     key and updates only its own adapters, chaining the unet wrapper.
+#     key and updates only its own adapters, chaining the unet wrapper. We apply
+#     the adapters with torch register_forward_hook (out += adapter.h(x)) rather
+#     than the stock forward-*replacement* (BypassForwardHook.inject, which saves
+#     and swaps module.forward). Forward-replacement is not safe when two
+#     injection groups touch the same shared module: the eject order isn't the
+#     strict reverse of inject, so a stale bypass whose original_forward is None
+#     gets left on the module and the next run crashes with
+#     "'NoneType' object is not callable". register_forward_hook handles are
+#     removed by identity (order-independent) and stack additively, so it's safe.
 #   * Non-adapter LoRA entries (full `diff`/`set` weights, rare) cannot be
 #     scheduled in bypass mode; they are applied statically at strength_start
 #     with a warning.
@@ -130,22 +140,72 @@ def _make_scheduler_wrapper(adapters, taper, prev_wrapper):
     return wrapper
 
 
+def _forward_hook_injections(bypass_hooks):
+    """Wrap configured BypassForwardHooks as register_forward_hook injections.
+
+    Unlike the stock forward-replacement (which saves/swaps module.forward and
+    corrupts a shared module when injection groups don't eject in strict LIFO
+    order), forward hooks are removed by identity and compose additively, so
+    stacking multiple schedulers is safe.
+    """
+    handles = []
+
+    def _make_hook(adapter):
+        def hook(module, inputs, output):
+            if not inputs or not isinstance(output, torch.Tensor):
+                return None
+            x = inputs[0]
+            if not isinstance(x, torch.Tensor):
+                return None
+            return output + adapter.h(x, output)
+        return hook
+
+    def inject_all(model_patcher):
+        # Idempotent: clear any handles we already own before re-registering.
+        for h in handles:
+            h.remove()
+        handles.clear()
+        device = comfy.model_management.get_torch_device()
+        for bh in bypass_hooks:
+            try:
+                bh._move_adapter_weights_to_device(device)
+            except Exception:
+                pass
+            handles.append(bh.module.register_forward_hook(_make_hook(bh.adapter)))
+
+    def eject_all(model_patcher):
+        for h in handles:
+            h.remove()
+        handles.clear()
+
+    return [comfy.patcher_extension.PatcherInjection(inject=inject_all, eject=eject_all)]
+
+
+def _build_manager(target_module, loaded, base_strength):
+    """Populate a BypassInjectionManager with adapter patches whose keys exist in
+    target_module. Returns (manager, regular_patches)."""
+    manager = comfy.weight_adapter.BypassInjectionManager()
+    sd_keys = set(target_module.state_dict().keys())
+    regular_patches = {}
+    for key, patch_data in loaded.items():
+        if isinstance(patch_data, comfy.weight_adapter.WeightAdapterBase):
+            if key in sd_keys:
+                manager.add_adapter(key, patch_data, strength=base_strength)
+        else:
+            regular_patches[key] = patch_data
+    # create_injections builds + configures the BypassForwardHook objects (sets
+    # adapter.multiplier and layer-type info); we reuse those hooks but apply
+    # them via forward hooks instead of the returned forward-replacement.
+    manager.create_injections(target_module)
+    return manager, regular_patches
+
+
 def _build_bypass(model_patcher, lora):
     """Build bypass adapters for the model. Returns (adapters, injections, regular_patches)."""
     key_map = comfy.lora.model_lora_keys_unet(model_patcher.model, {})
     loaded = comfy.lora.load_lora(lora, key_map)
-
-    manager = comfy.weight_adapter.BypassInjectionManager()
-    model_sd_keys = set(model_patcher.model.state_dict().keys())
-    regular_patches = {}
-    for key, patch_data in loaded.items():
-        if isinstance(patch_data, comfy.weight_adapter.WeightAdapterBase):
-            if key in model_sd_keys:
-                manager.add_adapter(key, patch_data, strength=1.0)
-        else:
-            regular_patches[key] = patch_data
-
-    injections = manager.create_injections(model_patcher.model)
+    manager, regular_patches = _build_manager(model_patcher.model, loaded, 1.0)
+    injections = _forward_hook_injections(manager.hooks)
     adapters = [hook.adapter for hook in manager.hooks]
     return adapters, injections, regular_patches
 
@@ -200,15 +260,9 @@ class SCGLoRAScheduler:
                 out_clip = clip.clone()
                 ckey_map = comfy.lora.model_lora_keys_clip(out_clip.cond_stage_model, {})
                 cloaded = comfy.lora.load_lora(lora, ckey_map)
-                cmanager = comfy.weight_adapter.BypassInjectionManager()
-                csd = set(out_clip.cond_stage_model.state_dict().keys())
-                cadded = 0
-                for key, patch_data in cloaded.items():
-                    if isinstance(patch_data, comfy.weight_adapter.WeightAdapterBase) and key in csd:
-                        cmanager.add_adapter(key, patch_data, strength=strength_clip)
-                        cadded += 1
-                if cadded > 0:
-                    cinj = cmanager.create_injections(out_clip.cond_stage_model)
+                cmanager, _ = _build_manager(out_clip.cond_stage_model, cloaded, strength_clip)
+                if len(cmanager.hooks) > 0:
+                    cinj = _forward_hook_injections(cmanager.hooks)
                     out_clip.patcher.set_injections(inst_key + "_clip", cinj)
             except Exception:
                 logging.exception("SCG LoRA Scheduler: CLIP LoRA application failed; passing CLIP through")
