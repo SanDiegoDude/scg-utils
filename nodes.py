@@ -1785,8 +1785,29 @@ class SCGTrimImageToMask:
                     {"default": 1.0, "min": 1.0, "max": 3.0, "step": 0.01},
                 ),
                 "background": (
-                    ["black", "white", "transparent"],
+                    [
+                        "black",
+                        "white",
+                        "gray",
+                        "transparent",
+                        "red",
+                        "green",
+                        "blue",
+                        "cyan",
+                        "magenta",
+                        "yellow",
+                        "orange",
+                        "purple",
+                        "custom",
+                    ],
                     {"default": "black"},
+                ),
+                "custom_color": (
+                    "COLOR",
+                    {
+                        "default": "#808080",
+                        "tooltip": "Used when background is custom. Hex #RRGGBB (default mid gray).",
+                    },
                 ),
             }
         }
@@ -1795,6 +1816,63 @@ class SCGTrimImageToMask:
     RETURN_NAMES = ("image", "mask", "restitch_data")
     FUNCTION = "trim_image_to_mask"
     CATEGORY = "scg-utils"
+
+    # Mid gray matches #808080 (128/255), the custom_color default.
+    _MID_GRAY = 128.0 / 255.0
+    _BACKGROUND_RGB = {
+        "black": (0.0, 0.0, 0.0),
+        "white": (1.0, 1.0, 1.0),
+        "gray": (_MID_GRAY, _MID_GRAY, _MID_GRAY),
+        "transparent": (0.0, 0.0, 0.0),
+        "red": (1.0, 0.0, 0.0),
+        "green": (0.0, 1.0, 0.0),
+        "blue": (0.0, 0.0, 1.0),
+        "cyan": (0.0, 1.0, 1.0),
+        "magenta": (1.0, 0.0, 1.0),
+        "yellow": (1.0, 1.0, 0.0),
+        "orange": (1.0, 0.5, 0.0),
+        "purple": (0.5, 0.0, 0.5),
+    }
+
+    def _parse_hex_color(self, hex_color):
+        """Parse #RGB / #RRGGBB / #RRGGBBAA into normalized RGB floats."""
+        if not isinstance(hex_color, str):
+            return (0.5, 0.5, 0.5)
+        h = hex_color.strip().lstrip("#")
+        if len(h) == 8:
+            h = h[:6]
+        elif len(h) == 4:
+            h = h[:3]
+        if len(h) == 3:
+            h = "".join(c * 2 for c in h)
+        if len(h) != 6:
+            return (0.5, 0.5, 0.5)
+        try:
+            return (
+                int(h[0:2], 16) / 255.0,
+                int(h[2:4], 16) / 255.0,
+                int(h[4:6], 16) / 255.0,
+            )
+        except ValueError:
+            return (0.5, 0.5, 0.5)
+
+    def _background_rgb(self, background, custom_color="#808080"):
+        if background == "custom":
+            return self._parse_hex_color(custom_color)
+        return self._BACKGROUND_RGB.get(background, (0.0, 0.0, 0.0))
+
+    def _background_tensor(self, background, custom_color, device, dtype):
+        r, g, b = self._background_rgb(background, custom_color)
+        return torch.tensor((r, g, b), device=device, dtype=dtype)
+
+    def _fill_with_background(self, shape_hw, bg_rgb, device, dtype):
+        """Allocate an HxWx3 image filled with bg_rgb (shape (3,))."""
+        h, w = shape_hw
+        out = torch.empty((h, w, 3), device=device, dtype=dtype)
+        out[..., 0] = bg_rgb[0]
+        out[..., 1] = bg_rgb[1]
+        out[..., 2] = bg_rgb[2]
+        return out
 
     def _fill_mask_holes(self, mask_np, fill_holes: bool):
         if not fill_holes:
@@ -1932,6 +2010,7 @@ class SCGTrimImageToMask:
         mask_invert=False,
         context_expand_borders=1.0,
         background="black",
+        custom_color="#808080",
     ):
         device = image.device
         batch, img_h, img_w, _ = image.shape
@@ -1953,7 +2032,7 @@ class SCGTrimImageToMask:
             # Broadcast single mask across batch if needed
             mask = mask.expand(batch, -1, -1)
 
-        background_value = 0.0 if background in ["black", "transparent"] else 1.0
+        bg_rgb = self._background_tensor(background, custom_color, device, image.dtype)
 
         # If not trimming, just apply mask to full image and return
         if not trim_image_to_mask:
@@ -1988,7 +2067,7 @@ class SCGTrimImageToMask:
                 # Apply mask to image if isolate_mask is True
                 if isolate_mask:
                     mask_3c = mask_processed.unsqueeze(-1)
-                    result_img = img_sample * mask_3c + background_value * (1.0 - mask_3c)
+                    result_img = img_sample * mask_3c + bg_rgb * (1.0 - mask_3c)
                 else:
                     result_img = img_sample.clone()
                 
@@ -2033,8 +2112,8 @@ class SCGTrimImageToMask:
 
             bbox = self._compute_bbox(mask_for_bbox)
             if bbox is None:
-                # No mask content: emit a 1x1 black tile and empty mask
-                empty_img = torch.full((1, 1, 3), background_value, device=device, dtype=img_sample.dtype)
+                # No mask content: emit a 1x1 background tile and empty mask
+                empty_img = self._fill_with_background((1, 1), bg_rgb, device, img_sample.dtype)
                 empty_mask = torch.zeros((1, 1), device=device, dtype=img_sample.dtype)
                 processed.append(
                     {
@@ -2079,7 +2158,7 @@ class SCGTrimImageToMask:
             # Apply mask to create background
             if isolate_mask:
                 mask_3c = mask_crop.unsqueeze(-1)
-                trimmed = img_crop * mask_3c + background_value * (1.0 - mask_3c)
+                trimmed = img_crop * mask_3c + bg_rgb * (1.0 - mask_3c)
             else:
                 # Only trim by bbox; keep original content inside the crop
                 trimmed = img_crop.clone()
@@ -2109,11 +2188,8 @@ class SCGTrimImageToMask:
             pad_left = (max_w - w) // 2
             pad_right = max_w - w - pad_left
 
-            img_padded = torch.full(
-                (max_h, max_w, 3),
-                background_value,
-                device=device,
-                dtype=img_crop.dtype,
+            img_padded = self._fill_with_background(
+                (max_h, max_w), bg_rgb, device, img_crop.dtype
             )
             img_padded[pad_top : pad_top + h, pad_left : pad_left + w, :] = img_crop
 

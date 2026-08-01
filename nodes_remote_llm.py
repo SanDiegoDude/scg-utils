@@ -168,10 +168,7 @@ class SCGRemoteLLMVLM_OAI:
         # Validate inputs
         if not api_url.strip():
             return ("Error: api_url is required.",)
-        
-        if not model_name.strip():
-            return ("Error: model_name is required.",)
-        
+
         try:
             try:
                 max_retries = int(max_retries)
@@ -216,12 +213,14 @@ class SCGRemoteLLMVLM_OAI:
             
             # Build request payload
             payload = {
-                "model": model_name,
                 "messages": messages,
                 "temperature": temperature,
                 "top_p": top_p,
                 "max_tokens": max_tokens,
             }
+            model_name = model_name.strip()
+            if model_name:
+                payload["model"] = model_name
             
             # Build headers
             headers = {
@@ -233,7 +232,7 @@ class SCGRemoteLLMVLM_OAI:
                 headers["Authorization"] = f"Bearer {api_key}"
             
             print(f"[SCG Remote LLM/VLM] Sending request to {api_url}")
-            print(f"[SCG Remote LLM/VLM] Model: {model_name}")
+            print(f"[SCG Remote LLM/VLM] Model: {model_name or 'server default'}")
             print(f"[SCG Remote LLM/VLM] Temperature: {temperature}, Top-p: {top_p}, Max tokens: {max_tokens}")
             
             total_attempts = max_retries + 1

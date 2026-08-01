@@ -7,12 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-- **SCG Load Audio Plus / Fast Video from Audio** - fall back to PyAV when
-  `torchaudio.save` fails under torchaudio 2.9+ / broken torchcodec+FFmpeg
-  (was killing audio load on machines missing matching libavutil).
-
 ### Added
+- **Instruction templates** (`compose` / `edit` / `face_reference` /
+  `subject_reference` / `style_reference` / `location_reference` / `custom`) on
+  SCG Reference Text Encoder Plus, SCG TextEncoderQwenEditPlus, and the
+  Conditioning Mixer's text branch — shared via `TEMPLATE_MODES` /
+  `resolve_template` in `nodes_qwen.py`.
+- **SCG Trim Image to Mask** - expanded `background` presets (`gray`, primary
+  colors, cyan/magenta/yellow/orange/purple) plus `custom` mode with a native
+  hex color picker (`custom_color`, default `#808080`). Chrome/Edge get an
+  Eyedropper button to sample colors from image previews or anywhere on screen.
 - **SCG Reference Text Encoder Plus** - optional `mask` (+ `mask_strength`,
   `mask_feather`, `invert_mask`). Keeps the mask=1 region and attenuates the rest
   into a low-info "ghost" (heavy blur + desaturate + contrast crush) before
@@ -29,6 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   large images (default unchanged at 1.0).
 
 ### Fixed
+- **SCG Load Audio Plus / Fast Video from Audio** - fall back to PyAV when
+  `torchaudio.save` fails under torchaudio 2.9+ / broken torchcodec+FFmpeg
+  (was killing audio load on machines missing matching libavutil).
 - **SCG LoRA Scheduler** - stacking two or more schedulers on the same model no
   longer crashes on the second generation (`'NoneType' object is not callable`).
   Adapters are now applied via `register_forward_hook` (removed by identity,

@@ -129,7 +129,75 @@ COMPOSE_TEMPLATE = (
     "<|im_end|>\n<|im_start|>user\n{}<|im_end|>\n<|im_start|>assistant\n"
 )
 
-TEMPLATE_MODES = ["compose", "edit", "custom"]
+FACE_REFERENCE_TEMPLATE = (
+    "<|im_start|>system\n"
+    "Your only job is to extract facial identity from the reference image(s). "
+    "Study face shape, bone structure, age cues, skin tone, eye shape and color, "
+    "nose, mouth, eyebrows, hairline, freckles, scars, facial hair, and other "
+    "distinctive facial traits. Completely ignore clothing, body type, pose, "
+    "hands, props, background, setting, camera angle, lighting mood, and artistic "
+    "style — none of those should influence the output. Following the user's "
+    "instruction, generate a new image that preserves only the referenced facial "
+    "characteristics; invent or follow the prompt for everything else."
+    "<|im_end|>\n<|im_start|>user\n{}<|im_end|>\n<|im_start|>assistant\n"
+)
+
+SUBJECT_REFERENCE_TEMPLATE = (
+    "<|im_start|>system\n"
+    "Your job is to extract the full subject identity from the reference "
+    "image(s): facial features, body type and proportions, hair, and clothing "
+    "or outfit details (silhouette, materials, colors, logos, accessories). "
+    "Ignore the background, setting, environment, camera framing of the scene, "
+    "and the overall artistic or photographic style of the reference — those "
+    "must not carry over. Following the user's instruction, generate a new "
+    "image that keeps the referenced subject's face, body, and attire, while "
+    "letting the prompt control pose, action, location, lighting, and style."
+    "<|im_end|>\n<|im_start|>user\n{}<|im_end|>\n<|im_start|>assistant\n"
+)
+
+STYLE_REFERENCE_TEMPLATE = (
+    "<|im_start|>system\n"
+    "Your job is to extract only the look and feel of the reference image(s): "
+    "artistic medium, rendering technique, color palette, contrast, lighting "
+    "quality, texture, brushwork or photographic treatment, and overall mood. "
+    "Do not copy people, faces, clothing, objects, poses, logos, or specific "
+    "scene content from the references — treat those as irrelevant. Following "
+    "the user's instruction, generate a new image whose content comes from the "
+    "prompt, but whose visual style closely matches the references."
+    "<|im_end|>\n<|im_start|>user\n{}<|im_end|>\n<|im_start|>assistant\n"
+)
+
+LOCATION_REFERENCE_TEMPLATE = (
+    "<|im_start|>system\n"
+    "Your job is to extract only the background and location from the reference "
+    "image(s): architecture, landscape, interior layout, props that define the "
+    "place, spatial depth, and environmental details. Completely ignore people, "
+    "faces, bodies, clothing, character identity, and the artistic or "
+    "photographic style of the reference — do not transfer those. Following the "
+    "user's instruction, generate a new image set in that same location or "
+    "environment, while letting the prompt control any subjects, action, and "
+    "visual style."
+    "<|im_end|>\n<|im_start|>user\n{}<|im_end|>\n<|im_start|>assistant\n"
+)
+
+TEMPLATE_MODES = [
+    "compose",
+    "edit",
+    "face_reference",
+    "subject_reference",
+    "style_reference",
+    "location_reference",
+    "custom",
+]
+
+_TEMPLATE_BY_MODE = {
+    "compose": COMPOSE_TEMPLATE,
+    "edit": EDIT_TEMPLATE,
+    "face_reference": FACE_REFERENCE_TEMPLATE,
+    "subject_reference": SUBJECT_REFERENCE_TEMPLATE,
+    "style_reference": STYLE_REFERENCE_TEMPLATE,
+    "location_reference": LOCATION_REFERENCE_TEMPLATE,
+}
 
 
 def resolve_template(instruction_template, custom_template):
@@ -142,9 +210,7 @@ def resolve_template(instruction_template, custom_template):
                 "<|im_end|>\n<|im_start|>user\n{}<|im_end|>\n<|im_start|>assistant\n"
             )
         return tmpl
-    if instruction_template == "edit":
-        return EDIT_TEMPLATE
-    return COMPOSE_TEMPLATE
+    return _TEMPLATE_BY_MODE.get(instruction_template, COMPOSE_TEMPLATE)
 
 
 class SCGTextEncoderQwenEditPlus:

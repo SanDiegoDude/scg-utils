@@ -44,17 +44,17 @@ A collection of handy ComfyUI nodes for image manipulation, retro effects, AI in
 - **SCG Megapixel Selector** - Calculate width/height from a megapixel target and aspect ratio
 
 ### Masking & Inpainting
-- **SCG Trim Image to Mask** - Trim images to masked content with context expansion
+- **SCG Trim Image to Mask** - Trim images to masked content with context expansion; background presets plus custom hex color (with eyedropper on supported browsers)
 - **SCG Stitch Inpaint Image** - Stitch inpainted crops back into originals
 
 ### AI & LLM Integration
 - **SCG Remote LLM/VLM - OAI Standard** - Connect to OpenAI-compatible APIs (OpenAI, LM Studio, etc.)
-- **SCG TextEncoderQwenEditPlus** - Qwen image editing/composition with up to 4 reference images, per-image conditioning modes (vision vs. reference latent), reference-latent placement method, and composition-oriented prompt templates
+- **SCG TextEncoderQwenEditPlus** - Qwen image editing/composition with up to 4 reference images, per-image conditioning modes (vision vs. reference latent), reference-latent placement method, and instruction templates (`compose`, `edit`, `face_reference`, `subject_reference`, `style_reference`, `location_reference`, `custom`)
 - **RAAG Model Patch** - Ratio Aware Adaptive Guidance for diffusion models
 
 ### Conditioning & Sampling
-- **SCG Reference Text Encoder Plus** - Single-reference-image Qwen encoder with `vision_only`, compose/edit/custom templates, reference-latent placement, and `vision_megapixels`
-- **SCG Conditioning Mixer** - Single-node mix of two conditionings with per-source strength, timestep window, taper, and merge style, plus an optional text-only branch
+- **SCG Reference Text Encoder Plus** - Single-reference-image Qwen encoder with `vision_only`, the same instruction templates as above, reference-latent placement, and `vision_megapixels`
+- **SCG Conditioning Mixer** - Single-node mix of two conditionings with per-source strength, timestep window, taper, and merge style, plus an optional text-only branch (same templates)
 - **SCG LoRA Scheduler** - Taper a LoRA's model strength across the denoise (`strength_start` → `strength_end` inside a clean `start_percent`/`end_percent` window, with interpolation); optional static CLIP application
 
 ### Text Processing
