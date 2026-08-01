@@ -15,6 +15,54 @@ try:
 except ImportError:
     AUDIO_AVAILABLE = False
 
+
+def _save_audio_waveform(path, waveform, sample_rate, format="flac"):
+    """Save a [channels, samples] (or batched) waveform to disk.
+
+    Prefer torchaudio. On torchaudio 2.9+ that routes through torchcodec, which
+    needs matching FFmpeg shared libs; if that fails, fall back to PyAV so a
+    broken torchcodec install cannot kill audio load/preview.
+    """
+    waveform = waveform.detach().cpu().contiguous()
+    if waveform.ndim == 3:
+        waveform = waveform[0]
+    if waveform.ndim != 2:
+        raise ValueError(f"Expected audio waveform [channels, samples], got shape {tuple(waveform.shape)}")
+
+    try:
+        torchaudio.save(path, waveform, sample_rate, format=format)
+        return
+    except Exception as e:
+        print(f"[scg-utils] torchaudio.save failed ({type(e).__name__}); falling back to PyAV")
+
+    audio_np = waveform.numpy()
+    if audio_np.dtype != np.float32:
+        audio_np = audio_np.astype(np.float32)
+
+    channels = audio_np.shape[0]
+    layout = "stereo" if channels > 1 else "mono"
+    fmt = (format or "flac").lower()
+
+    if fmt == "wav":
+        container_format, codec_name, frame_format = "wav", "pcm_s16le", "s16"
+        audio_np = np.clip(audio_np, -1.0, 1.0)
+        audio_np = (audio_np * 32767.0).astype(np.int16)
+        # pcm_s16le wants packed/interleaved samples: shape (1, samples * channels)
+        audio_np = np.ascontiguousarray(audio_np.T.reshape(1, -1))
+    else:
+        container_format, codec_name, frame_format = "flac", "flac", "fltp"
+
+    with av.open(path, mode="w", format=container_format) as container:
+        stream = container.add_stream(codec_name, rate=sample_rate)
+        stream.layout = layout
+        frame = av.AudioFrame.from_ndarray(audio_np, format=frame_format, layout=layout)
+        frame.sample_rate = sample_rate
+        frame.pts = 0
+        for packet in stream.encode(frame):
+            container.mux(packet)
+        for packet in stream.encode(None):
+            container.mux(packet)
+
 class SCGZeroedOutputs:
     """
     A utility node that provides zeroed/empty outputs for all common ComfyUI data types.
@@ -2518,10 +2566,10 @@ class SCGLoadAudioPlus:
         temp_filename = f"scg_audio_preview_{random_suffix}.flac"
         temp_path = os.path.join(temp_dir, temp_filename)
         
-        # Save audio for preview (using torchaudio)
-        # Waveform shape is [batch, channels, samples], we need [channels, samples] for torchaudio
-        preview_waveform = waveform[0]  # Remove batch dimension
-        torchaudio.save(temp_path, preview_waveform, sample_rate, format="flac")
+        # Save audio for preview. Waveform is [batch, channels, samples]; helper
+        # strips the batch dim and falls back to PyAV if torchcodec is broken.
+        preview_waveform = waveform[0]
+        _save_audio_waveform(temp_path, preview_waveform, sample_rate, format="flac")
         
         # Return with UI data for audio preview
         return {
@@ -2796,7 +2844,7 @@ class SCGFastVideoFromAudio:
         
         # Save the audio as WAV
         audio_waveform = waveform[0] if waveform.dim() == 3 else waveform  # Remove batch dim
-        torchaudio.save(temp_audio_path, audio_waveform.cpu(), sample_rate, format="wav")
+        _save_audio_waveform(temp_audio_path, audio_waveform.cpu(), sample_rate, format="wav")
         
         # Use ffmpeg to create video with audio
         # -loop 1: loop the image

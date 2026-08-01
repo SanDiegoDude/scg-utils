@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **SCG Load Audio Plus / Fast Video from Audio** - fall back to PyAV when
+  `torchaudio.save` fails under torchaudio 2.9+ / broken torchcodec+FFmpeg
+  (was killing audio load on machines missing matching libavutil).
+
 ### Added
 - **SCG Reference Text Encoder Plus** - optional `mask` (+ `mask_strength`,
   `mask_feather`, `invert_mask`). Keeps the mask=1 region and attenuates the rest
