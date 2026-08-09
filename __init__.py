@@ -26,9 +26,7 @@ from .nodes_color_palette import SCGColorPaletteTransformer
 from .nodes_console_stylizer import SCGConsoleStylizer
 from .nodes_mask_diff import SCGMaskImageDifference
 from .nodes_minimax_h3 import SCGMiniMaxH3Image, SCGMiniMaxH3Reference
-from .nodes_minimax_h3_extend import SCGMiniMaxH3VideoExtend
 from .nodes_concat_video import SCGConcatenateVideo
-from .nodes_concat_h3_extend import SCGMiniMaxH3ExtensionConcat
 
 NODE_CLASS_MAPPINGS = {
     "SCGZeroedOutputs": SCGZeroedOutputs,
@@ -59,9 +57,7 @@ NODE_CLASS_MAPPINGS = {
     "SCGMaskImageDifference": SCGMaskImageDifference,
     "SCGMiniMaxH3Image": SCGMiniMaxH3Image,
     "SCGMiniMaxH3Reference": SCGMiniMaxH3Reference,
-    "SCGMiniMaxH3VideoExtend": SCGMiniMaxH3VideoExtend,
     "SCGConcatenateVideo": SCGConcatenateVideo,
-    "SCGMiniMaxH3ExtensionConcat": SCGMiniMaxH3ExtensionConcat,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -93,9 +89,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "SCGMaskImageDifference": "SCG Mask Image Difference",
     "SCGMiniMaxH3Image": "SCG MiniMax H3 Image",
     "SCGMiniMaxH3Reference": "SCG MiniMax H3 Reference",
-    "SCGMiniMaxH3VideoExtend": "SCG MiniMax H3 Video Extend",
     "SCGConcatenateVideo": "SCG Concatenate Video",
-    "SCGMiniMaxH3ExtensionConcat": "SCG MiniMax H3 Video Extension Concatenator",
 }
 
 WEB_DIRECTORY = "./web"

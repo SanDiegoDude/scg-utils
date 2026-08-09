@@ -8,27 +8,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **SCG MiniMax H3 Video Extension Concatenator** — join an original clip to its
-  H3 extension without playing the join twice. An extension does not begin where
-  its source ended: the motion context pins a run of the source's tail into the
-  head of the new clip, so the first `trim_frames` frames the sampler delivers
-  re-generate footage the original already holds. This is therefore the one join
-  in the pack where consuming an overlap is *correct* — the overlapping frames
-  are the same content rendered twice, not extra timeline, which is the exact
-  opposite of the case that made SCG Concatenate Video refuse an overlapping
-  crossfade. Picture and sound lose the same span, so the output is always
-  `original + extension - overlap` frames with audio exactly that long; get it
-  wrong instead and the whole remainder runs 917ms out at the default overlap of
-  22. `overlap_frames` offers only 0, 1, 5, 22 and 39, because those are the run
-  lengths the video VAE resolves and so the only counts a motion context can
-  produce; better still, wire `trim_frames` straight from SCG MiniMax H3 Video
-  Extend and the two can never disagree. The overlap is measured as a duration on
-  H3's 24 fps grid and cut from the extension in its own native rate before any
-  retiming or resampling, so a non-24fps original stays in sync. `join` is a hard
-  cut after dropping the re-generated head (the default, equivalent to Motion
-  Context Trim plus a plain concatenation) or a dissolve across the overlap that
-  spreads the step in exposure and detail over the whole run; both deliver
-  identical length.
 - **SCG Concatenate Video** — join two clips end to end, A then B, reconciling
   the properties that have to agree before a join is even valid: resolution and
   frame rate for picture, sample rate and channel count for sound. Each side is
@@ -40,18 +19,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   an in-place equal-power fade that preserves total length — deliberately not an
   overlapping crossfade, since an overlap shortens audio while the picture keeps
   every frame, desyncing the remainder of the timeline.
-- **SCG MiniMax H3 Video Extend** — continues an existing clip past its last
-  frame, carrying motion and audio across the join. Stock extension anchors on
-  one still frame, which holds position but not velocity, so motion in progress
-  restarts from rest and the soundtrack begins again; this pins a run of tail
-  frames plus the tail audio on the new clip's timeline. Outputs `trim_frames`
-  for the Motion Context Trim node. Resamples the tail to H3's 24 fps — an
-  unconverted 30 fps source continues at 80% speed. Ingest is reduced in-node:
-  only the pinned window is trimmed, resized and encoded, so cost scales with
-  `context_length` rather than with the length of the source, and no
-  pre-trimming graph is needed ahead of it. The kept/dropped counts are logged.
-  Delegates the layout work to the ComfyUI-H3-Multishot pack, which must be
-  installed.
 - **SCG MiniMax H3 Image** / **SCG MiniMax H3 Reference** — same as core MiniMax H3
   Image/Reference to Video conditioning, but locked to a true 1-frame latent
   (`latent_t=1`) for single-image generation experiments.
@@ -72,38 +39,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (no auto-resize; mismatches raise an error).
 
 ### Changed
-- **SCG MiniMax H3 Video Extension Concatenator** — now also emits the joined
-  IMAGE batch and AUDIO after its existing VIDEO and `frame_count` outputs, so
-  the same join can feed raw-frame workflows without decoding the VIDEO. Silent
-  joins carry a 44.1 kHz silence track fitted to the joined picture length, so
-  downstream audio and video nodes always receive a valid AUDIO value.
-- **Shared video-join helpers** — the strategy resolution, geometry/rate
-  conformance, audio conformance, duration fitting and equal-power taper that
-  SCG Concatenate Video owned now live in `video_join.py`, and both joining
-  nodes route through them. Those decisions are identical whatever the join
-  means, so keeping a second copy next to the new node would have created a
-  drift surface with no canonical side. SCG Concatenate Video is unchanged in
-  behaviour.
-- **SCG MiniMax H3 Video Extension Concatenator** — `video_original` and
-  `video_extension` are now optional, each with an `images_*` (IMAGE) +
-  `audio_*` (AUDIO) + `fps_*` (FLOAT, default 24.0) alternative, so a side
-  can arrive as a real VIDEO or as raw frames straight off a sampler. VIDEO
-  wins whenever both are wired on a side — logged, not silent — and each side
-  resolves independently, so one side can be VIDEO while the other is
-  images+audio. `audio_*` is optional even on the images path: an unwired
-  track means silent, the same as a VIDEO with no audio, never a hard
-  requirement. `fps_*` only matters on the images path (an IMAGE batch
-  carries no rate of its own) and is ignored — the tooltip says so — the
-  moment a VIDEO is wired to that side, since a VIDEO already reports its own
-  rate and the overlap math needs the *real* one on both sides to place the
-  cut correctly. Wiring neither a VIDEO nor images to a side now raises,
-  naming the side and what to connect, since ComfyUI can no longer enforce
-  that at the socket level once both paths are optional. The resolution
-  itself — VIDEO-or-images-and-audio-and-fps into the one shape the join math
-  already consumes — is one new chokepoint, `resolve_clip_source` in
-  `video_join.py`, so a future side on SCG Concatenate Video could adopt the
-  same capability without a second implementation; SCG Concatenate Video
-  itself is untouched.
+- **SCG Concatenate Video** — strategy resolution, geometry/rate conformance,
+  audio conformance, duration fitting and equal-power taper now live in
+  `video_join.py`; behavior is unchanged.
 - **SCG Conditioning Mixer** - source strengths (`a/b/text_strength` and taper
   targets) now go up to **4.0** (was 2.0) for aggressive transfer; high values
   usually break, but useful to explore with the taper.
