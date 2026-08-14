@@ -2,23 +2,43 @@ import { app } from "../../../scripts/app.js";
 
 // SCG Trim Image to Mask - show custom_color only for "custom" background,
 // and offer an EyeDropper to sample colors from previews / the desktop.
+//
+// Do not change widget.type when hiding. LayerStyle's COLOR handler treats a
+// missing type==="COLOR" widget as absent and injects a duplicate; its draw
+// then crashes on null values and takes the whole graph canvas down with it.
 
 const COLLAPSED = () => [0, -4];
 
+function setDomHidden(w, hidden) {
+    const el = w?.element || w?.inputEl;
+    if (!el || !el.style) return;
+    el.style.display = hidden ? "none" : "";
+}
+
 function hideWidget(w) {
-    if (!w || w.type === "scg-hidden") return;
-    w._scgOrig = { type: w.type, computeSize: w.computeSize };
-    w.type = "scg-hidden";
+    if (!w || w.hidden) return;
+    if (!w._scgOrig) {
+        w._scgOrig = {
+            computeSize: w.computeSize,
+            draw: w.draw,
+            mouse: w.mouse,
+        };
+    }
     w.computeSize = COLLAPSED;
+    w.draw = function () {};
+    w.mouse = function () {};
     w.hidden = true;
+    setDomHidden(w, true);
 }
 
 function showWidget(w) {
     if (!w || !w._scgOrig) return;
-    w.type = w._scgOrig.type;
     w.computeSize = w._scgOrig.computeSize;
+    w.draw = w._scgOrig.draw;
+    w.mouse = w._scgOrig.mouse;
     delete w._scgOrig;
     w.hidden = false;
+    setDomHidden(w, false);
 }
 
 function setVis(node, name, visible) {
@@ -41,6 +61,34 @@ function normalizeHex(value, fallback = "#808080") {
     return /^#[0-9a-fA-F]{6}$/.test(h) ? h.toLowerCase() : fallback;
 }
 
+function hardenColorWidget(node) {
+    const widgets = node.widgets || [];
+    const matches = widgets.filter((w) => w.name === "custom_color");
+    if (!matches.length) return;
+
+    const keep =
+        matches.find((w) => typeof w.value === "string" && w.value.includes("#")) ||
+        matches[0];
+    keep.value = normalizeHex(keep.value);
+
+    if (matches.length > 1) {
+        node.widgets = widgets.filter((w) => w.name !== "custom_color" || w === keep);
+    }
+
+    if (keep._scgDrawWrapped) return;
+    keep._scgDrawWrapped = true;
+    const origDraw = keep.draw;
+    keep.draw = function (ctx, node, widgetWidth, widgetY, height) {
+        if (this.hidden) return;
+        this.value = normalizeHex(this.value);
+        if (typeof origDraw !== "function") return;
+        return origDraw.apply(this, arguments);
+    };
+    if (keep._scgOrig) {
+        keep._scgOrig.draw = keep.draw;
+    }
+}
+
 function setCustomColor(node, hex) {
     const colorW = node.widgets?.find((w) => w.name === "custom_color");
     if (!colorW) return;
@@ -54,6 +102,7 @@ function setCustomColor(node, hex) {
 }
 
 function updateVisibility(node) {
+    hardenColorWidget(node);
     const bg = node.widgets?.find((w) => w.name === "background")?.value;
     const isCustom = bg === "custom";
     setVis(node, "custom_color", isCustom);
@@ -82,7 +131,7 @@ function ensureEyedropperButton(node) {
     const hasEyeDropper = typeof window.EyeDropper === "function";
     const label = hasEyeDropper ? "Eyedropper (sample screen)" : "Eyedropper (unsupported)";
 
-    node.addWidget("button", label, null, async () => {
+    node.addWidget("button", label, "", async () => {
         if (!hasEyeDropper) {
             window.alert(
                 "EyeDropper API is not available in this browser. Use Chrome/Edge, or pick a color with the custom_color widget."
@@ -95,7 +144,6 @@ function ensureEyedropperButton(node) {
                 setCustomColor(node, result.sRGBHex);
             }
         } catch (err) {
-            // User cancel is normal; ignore AbortError-style cancels.
             if (err && (err.name === "AbortError" || err.name === "NotAllowedError")) {
                 return;
             }
@@ -119,6 +167,14 @@ app.registerExtension({
             const r = origOnNodeCreated ? origOnNodeCreated.apply(this, arguments) : undefined;
             ensureEyedropperButton(this);
             wrapWidgetCallback(this, "background");
+            updateVisibility(this);
+            return r;
+        };
+
+        const origConfigure = nodeType.prototype.configure;
+        nodeType.prototype.configure = function () {
+            const r = origConfigure ? origConfigure.apply(this, arguments) : undefined;
+            ensureEyedropperButton(this);
             updateVisibility(this);
             return r;
         };
