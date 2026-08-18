@@ -36,6 +36,7 @@ A collection of handy ComfyUI nodes for image manipulation, retro effects, AI in
 - **SCG Zeroed Outputs** - Provides zeroed/empty outputs for placeholder inputs
 - **SCG Image Stack** - Stack up to 4 images in customizable grid layouts
 - **SCG Image Stack XL** - Extended version supporting up to 8 images
+- **SCG Video Stack** - Stack a batch of images/video frames into a column-driven grid (`select_every_nth`, auto rows)
 - **SCG Scale to Megapixel Size** - Scale images to specific megapixel targets with dimension constraints
 - **SCG Scale Dimension to Size** - Scale images by targeting shortest/longest/width/height dimension, or fit into a centered square with padding
 
@@ -73,6 +74,7 @@ A collection of handy ComfyUI nodes for image manipulation, retro effects, AI in
 
 ### Video Utilities
 - **SCG Fast Video from Audio** - Create video from a single image + audio track
+- **SCG Video Stack** - Contact sheet from video frames: every Nth frame, auto rows, optional megapixel rescale
 
 ## 🚀 Installation
 

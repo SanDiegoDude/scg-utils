@@ -958,6 +958,125 @@ class SCGImageStackXL:
         return (black_pixel,)
 
 
+class SCGVideoStack(SCGImageStack):
+    """
+    Stack a batch of images (video frames, etc.) into a grid.
+    Columns are user-set; rows grow until every selected frame is placed.
+    Incomplete last rows are filled with padding_color.
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "images": ("IMAGE",),
+                "columns": ("INT", {"default": 2, "min": 1, "max": 32, "step": 1}),
+                "select_every_nth": ("INT", {
+                    "default": 1,
+                    "min": 1,
+                    "max": 10000,
+                    "step": 1,
+                    "tooltip": "Keep every Nth frame. 1 = all frames; 24 ≈ one frame per second from 24fps video.",
+                }),
+                "skip_first_image": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": "When true, skip frame 0 and start at the first index equal to select_every_nth.",
+                }),
+                "pad_to_square": ("BOOLEAN", {"default": False}),
+                "padding_color": (["black", "white"], {"default": "black"}),
+                "grid_size": ("INT", {"default": 0, "min": 0, "max": 50, "step": 1}),
+                "rescale_output": ("BOOLEAN", {"default": False}),
+                "megapixels": ("FLOAT", {
+                    "default": 1.00,
+                    "min": 0.01,
+                    "max": 16.0,
+                    "step": 0.01,
+                    "tooltip": "Target megapixels when rescale_output is enabled.",
+                }),
+            }
+        }
+
+    RETURN_TYPES = ("IMAGE",)
+    RETURN_NAMES = ("image",)
+    FUNCTION = "stack_video_images"
+    CATEGORY = "scg-utils"
+
+    def stack_video_images(self, images, columns=2, select_every_nth=1, skip_first_image=False,
+                           pad_to_square=False, padding_color="black", grid_size=0,
+                           rescale_output=False, megapixels=1.00):
+        color_value = 0.0 if padding_color == "black" else 1.0
+
+        if images is None or images.shape[0] == 0:
+            return (torch.zeros((1, 1, 1, 3), dtype=torch.float32),)
+
+        start = select_every_nth if skip_first_image else 0
+        selected = images[start::select_every_nth]
+        if selected.shape[0] == 0:
+            return (torch.zeros((1, 1, 1, 3), dtype=torch.float32),)
+
+        frames = [selected[i:i + 1] for i in range(selected.shape[0])]
+        first_image = frames[0]
+        if pad_to_square:
+            first_image = self.pad_image_to_square(first_image, color_value)
+
+        cell_h = first_image.shape[1]
+        cell_w = first_image.shape[2]
+        channels = first_image.shape[3]
+        processed = [first_image]
+        for img in frames[1:]:
+            processed.append(self.fit_and_pad_image(img, cell_h, cell_w, color_value))
+
+        rows = math.ceil(len(processed) / columns)
+        empty = torch.full(
+            (1, cell_h, cell_w, channels),
+            color_value,
+            dtype=first_image.dtype,
+            device=first_image.device,
+        )
+        while len(processed) < rows * columns:
+            processed.append(empty)
+
+        grid_rows = []
+        for row in range(rows):
+            row_images = []
+            for col in range(columns):
+                img = processed[row * columns + col]
+                if grid_size > 0:
+                    h, w = img.shape[1], img.shape[2]
+                    padded_img = torch.full(
+                        (1, h + 2 * grid_size, w + 2 * grid_size, channels),
+                        color_value,
+                        dtype=img.dtype,
+                        device=img.device,
+                    )
+                    padded_img[:, grid_size:grid_size + h, grid_size:grid_size + w, :] = img
+                    row_images.append(padded_img)
+                else:
+                    row_images.append(img)
+            grid_rows.append(torch.cat(row_images, dim=2))
+
+        final_image = torch.cat(grid_rows, dim=1)
+
+        if rescale_output:
+            batch, height, width, _ = final_image.shape
+            current_pixels = height * width
+            target_pixels = max(1, int(megapixels * 1_000_000))
+            if current_pixels > 0 and current_pixels != target_pixels:
+                scale_factor = (target_pixels / current_pixels) ** 0.5
+                new_height = max(1, int(height * scale_factor))
+                new_width = max(1, int(width * scale_factor))
+                image_bchw = final_image.permute(0, 3, 1, 2)
+                resized_bchw = torch.nn.functional.interpolate(
+                    image_bchw,
+                    size=(new_height, new_width),
+                    mode="bilinear",
+                    align_corners=False,
+                )
+                final_image = resized_bchw.permute(0, 2, 3, 1)
+
+        return (final_image,)
+
+
 class SCGWildcardVariableProcessor:
     """
     A utility node that replaces wildcard variables in text strings.

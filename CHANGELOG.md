@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **SCG Video Stack** — contact sheet from a batched `images` input (video frames).
+  Columns are user-set (default 2); rows grow until every selected frame is placed,
+  with leftover cells filled by `padding_color`. `select_every_nth` (default 1)
+  plus `skip_first_image` pick which frames go in; `rescale_output` targets a
+  `megapixels` size (default 1.00).
 - **SCG Concatenate Video** — join two clips end to end, A then B, reconciling
   the properties that have to agree before a join is even valid: resolution and
   frame rate for picture, sample rate and channel count for sound. Each side is
