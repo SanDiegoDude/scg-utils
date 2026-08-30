@@ -4,11 +4,11 @@ A multipurpose ComfyUI node for connecting to OpenAI-compatible API endpoints, i
 
 ## Features
 
-- **Multi-Modal Support**: Up to 4 optional image inputs for Vision-Language Models (VLMs)
-- **Text-Only Mode**: Works with standard LLMs when no images are provided
+- **Multi-Modal Support**: Optional image inputs for VLMs; sockets autogrow as you connect them (up to 10)
+- **Fresh LM Studio Requests**: Text and vision both use `/api/v1/chat` with `store=false`, so each run is a new conversation. Instruct chat templates are applied, and user/system text shows up in the LM Studio request log.
 - **OpenAI Compatible**: Works with any OpenAI API-compatible endpoint
 - **Local Server Support**: Perfect for LM Studio, Ollama (with OpenAI compatibility), and other local servers
-- **Full Parameter Control**: Temperature, top_p, max_tokens, and more
+- **Full Parameter Control**: Temperature, top_p, max_tokens, timeout, and more
 - **Retry Control**: Automatically retries transient server failures like HTTP 500 responses
 
 ## Use Cases
@@ -17,7 +17,7 @@ A multipurpose ComfyUI node for connecting to OpenAI-compatible API endpoints, i
 Connect to your local LM Studio server running vision models like Qwen2-VL:
 
 ```
-API URL: http://localhost:1234/v1/chat/completions
+API URL: http://localhost:1234/api/v1/chat
 Model Name: qwen2-vl-7b-instruct
 API Key: lm-studio (or leave as default)
 ```
@@ -45,7 +45,7 @@ Works with:
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `api_url` | STRING | `http://localhost:1234/v1/chat/completions` | API endpoint URL |
+| `api_url` | STRING | `http://localhost:1234/api/v1/chat` | API endpoint URL |
 | `model_name` | STRING | `qwen2-vl-7b-instruct` | Model identifier |
 | `api_key` | STRING | `lm-studio` | API key for authentication |
 | `system_prompt` | STRING (multiline) | `You are a helpful assistant.` | System context message |
@@ -56,15 +56,15 @@ Works with:
 | `seed` | INT | `42` | Seed value for ComfyUI caching control |
 | `bypass` | BOOLEAN | `False` | If True, returns user_prompt without API call |
 | `max_retries` | INT | `3` | Retry attempts for transient API failures such as timeouts, connection errors, HTTP 5xx responses, and LM Studio model crash/reload HTTP 400 responses |
+| `timeout` | INT | `600` | HTTP timeout in seconds for each API attempt (1-36000) |
+| `reasoning` | COMBO | `default` | LM Studio reasoning: `default` (omit, model automatic), `off`, `on`, `low`, `medium`, `high`. Unsupported values return a server error naming the allowed settings |
+| `pad_input` | BOOLEAN | `false` | When true, pad tall/wide images to a square (no crop) so CLIP-style VLMs do not drop the edges. Off by default |
 
 ### Optional Inputs
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `image1` | IMAGE | First optional image input |
-| `image2` | IMAGE | Second optional image input |
-| `image3` | IMAGE | Third optional image input |
-| `image4` | IMAGE | Fourth optional image input |
+| `image1`…`image10` | IMAGE | Optional image inputs. `image1` is always shown; connecting an image exposes the next empty slot, up to 10 |
 
 ## Output
 
@@ -84,8 +84,8 @@ Works with:
 
 ### Example 2: Multi-Image Comparison
 
-1. Load 2-4 images in ComfyUI
-2. Connect them to `image1`, `image2`, etc.
+1. Load 2-10 images in ComfyUI
+2. Connect them to `image1`, `image2`, etc. (a new empty slot appears after each connection)
 3. Set `user_prompt` to: "Compare these images and describe their differences."
 4. Run the workflow
 
@@ -112,21 +112,23 @@ To use with LM Studio:
 2. **Start the server** in LM Studio (default port: 1234)
 3. **Load the model** in LM Studio's server tab
 4. **Use these settings** in the node:
-   - API URL: `http://localhost:1234/v1/chat/completions`
+   - API URL: `http://localhost:1234/api/v1/chat`
    - Model Name: _(exact name from LM Studio)_
    - API Key: `lm-studio` (LM Studio doesn't require real API keys)
 
 ## Tips
 
-- **Image Format**: Images are automatically converted to base64 PNG format
-- **Large Images**: Consider resizing images before the node to reduce processing time
-- **Timeout**: Requests timeout after 120 seconds
+- **Image Format**: Images are converted to RGB PNG. `pad_input` pads to a square when enabled; otherwise aspect is kept. The long edge is capped at 2048px (scale, not crop). Console logs original vs sent WxH.
+- **Timeout**: Each API attempt uses the `timeout` setting (default 600 seconds)
 - **Retries**: Transient API failures, including LM Studio model crash/reload responses, are retried up to `max_retries` times with short backoff delays
 - **Error Messages**: Check the console output for detailed error information
 - **Bypass Mode**: Use bypass mode to test workflows without making API calls
 - **Seed Parameter**: The seed doesn't affect the API call itself, but changing it forces ComfyUI to re-execute the node. Set to "fixed" in ComfyUI to prevent automatic re-runs when upstream nodes change, or use "randomize" to force new generations each time.
 
 ## Troubleshooting
+
+### Vision misses the edges of tall/wide images
+The node does not crop. Many CLIP-style VLM towers (and some llama.cpp mmproj paths) still center-crop to a square after they receive the image. Turn on `pad_input` so the full frame is inside that square. Leave it off for Qwen-style models that keep aspect ratio themselves (padding then wastes tokens on the bars). Check the console for `[SCG Remote LLM/VLM] image1: WxH -> WxH (...)`.
 
 ### "Connection failed" Error
 - Verify the server is running (e.g., LM Studio server is started)
@@ -149,9 +151,9 @@ To use with LM Studio:
 ## Technical Details
 
 - **Image Encoding**: Base64 PNG format
-- **Protocol**: OpenAI Chat Completions API v1
-- **Timeout**: 120 seconds per request
-- **Image Processing**: Converts ComfyUI tensors to PIL Images automatically
+- **Protocol**: LM Studio `POST /api/v1/chat` with `store=false` for text and vision (fresh conversation, chat template applied). OpenAI vision/text uses `/v1/chat/completions`. Saved `.../v1/completions` or `.../v1/chat/completions` URLs are rewritten to `/api/v1/chat` on LM Studio.
+- **Timeout**: Configurable per request (default 600 seconds)
+- **Image Processing**: Converts ComfyUI tensors to RGB PNG. Optional `pad_input` pads to square; long edge capped at 2048px.
 
 ## Category
 

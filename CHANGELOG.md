@@ -44,6 +44,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (no auto-resize; mismatches raise an error).
 
 ### Changed
+- **SCG Remote LLM/VLM - OAI Standard** - image inputs now grow from `image1` up
+  to `image10` as connections are made. `timeout` is a node input (default **600s**,
+  was a hardcoded 120s) so long reasoning calls are not cut off mid-request.
+  Text and vision on LM Studio now both use `/api/v1/chat` with `store=false`.
+  `/v1/completions` was dropping the chat template, so instruct models returned
+  empty EOS and LM Studio did not show user/system text. `reasoning` is a node
+  combo (`default` / `off` / `on` / `low` / `medium` / `high`); `default` omits
+  the field so LM Studio uses the model's automatic setting.
 - **SCG Concatenate Video** — strategy resolution, geometry/rate conformance,
   audio conformance, duration fitting and equal-power taper now live in
   `video_join.py`; behavior is unchanged.
@@ -55,6 +63,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   large images (default unchanged at 1.0).
 
 ### Fixed
+- **SCG Remote LLM/VLM - OAI Standard** - vision was sending the full image, but CLIP-style VLM preprocess still center-crops tall/wide frames. Optional `pad_input` (default off) pads to a square without cropping. Console logs original vs sent WxH. Long edge is scaled to 2048px max.
 - **SCG Load Audio Plus / Fast Video from Audio** - fall back to PyAV when
   `torchaudio.save` fails under torchaudio 2.9+ / broken torchcodec+FFmpeg
   (was killing audio load on machines missing matching libavutil).
