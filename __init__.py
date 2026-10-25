@@ -28,6 +28,7 @@ from .nodes_console_stylizer import SCGConsoleStylizer
 from .nodes_mask_diff import SCGMaskImageDifference
 from .nodes_minimax_h3 import SCGMiniMaxH3Image, SCGMiniMaxH3Reference
 from .nodes_concat_video import SCGConcatenateVideo
+from .nodes_qwen21_fun_controlnet import SCGLoadQwenImage21FunControlNet, SCGApplyQwenImage21FunControlNet
 
 NODE_CLASS_MAPPINGS = {
     "SCGZeroedOutputs": SCGZeroedOutputs,
@@ -60,6 +61,8 @@ NODE_CLASS_MAPPINGS = {
     "SCGMiniMaxH3Image": SCGMiniMaxH3Image,
     "SCGMiniMaxH3Reference": SCGMiniMaxH3Reference,
     "SCGConcatenateVideo": SCGConcatenateVideo,
+    "SCGLoadQwenImage21FunControlNet": SCGLoadQwenImage21FunControlNet,
+    "SCGApplyQwenImage21FunControlNet": SCGApplyQwenImage21FunControlNet,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -93,6 +96,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "SCGMiniMaxH3Image": "SCG MiniMax H3 Image",
     "SCGMiniMaxH3Reference": "SCG MiniMax H3 Reference",
     "SCGConcatenateVideo": "SCG Concatenate Video",
+    "SCGLoadQwenImage21FunControlNet": "SCG Load Qwen Image 2.1 Fun ControlNet",
+    "SCGApplyQwenImage21FunControlNet": "SCG Apply Qwen Image 2.1 Fun ControlNet",
 }
 
 WEB_DIRECTORY = "./web"

@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **SCG Remote LLM/VLM** sends the LM Studio bearer token on `GET /api/v1/models` as well as chat. Leave `api_key` empty (saved workflows that still say `lm-studio` count as empty) and set `SCG_LMSTUDIO_API_KEY` in `scg-utils/.env`, or export `SCG_LMSTUDIO_API_KEY` / `LM_API_TOKEN`, so the token is not stored in the workflow.
 
 ### Added
+- **SCG Load / Apply Qwen Image 2.1 Fun ControlNet** — load the Fun ControlNet-Union checkpoint (original weights or fused `gate_up`) and run its 16 control blocks in parallel with Qwen Image 2.1.
 - **SCG Video Stack** — contact sheet from a batched `images` input (video frames).
   Columns are user-set (default 2); rows grow until every selected frame is placed,
   with leftover cells filled by `padding_color`. `select_every_nth` (default 1)
