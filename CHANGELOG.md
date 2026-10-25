@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **SCG Remote LLM/VLM** sends the LM Studio bearer token on `GET /api/v1/models` as well as chat. Leave `api_key` empty (saved workflows that still say `lm-studio` count as empty) and set `SCG_LMSTUDIO_API_KEY` in `scg-utils/.env`, or export `SCG_LMSTUDIO_API_KEY` / `LM_API_TOKEN`, so the token is not stored in the workflow.
+
 ### Added
 - **SCG Video Stack** — contact sheet from a batched `images` input (video frames).
   Columns are user-set (default 2); rows grow until every selected frame is placed,

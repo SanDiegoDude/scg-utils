@@ -19,7 +19,7 @@ Connect to your local LM Studio server running vision models like Qwen2-VL:
 ```
 API URL: http://localhost:1234/api/v1/chat
 Model Name: qwen2-vl-7b-instruct
-API Key: lm-studio (or leave as default)
+API Key: leave empty and set SCG_LMSTUDIO_API_KEY (see below)
 ```
 
 ### 2. OpenAI API
@@ -47,7 +47,7 @@ Works with:
 |-----------|------|---------|-------------|
 | `api_url` | STRING | `http://localhost:1234/api/v1/chat` | API endpoint URL |
 | `model_name` | STRING | `qwen2-vl-7b-instruct` | Model identifier |
-| `api_key` | STRING | `lm-studio` | API key for authentication |
+| `api_key` | STRING | _(empty)_ | Optional one-off key. Saved in the workflow. Leave empty to use `SCG_LMSTUDIO_API_KEY` or `LM_API_TOKEN` |
 | `system_prompt` | STRING (multiline) | `You are a helpful assistant.` | System context message |
 | `user_prompt` | STRING (multiline) | _(empty)_ | Your query/instruction |
 | `temperature` | FLOAT | `0.7` | Sampling temperature (0.0-2.0) |
@@ -113,8 +113,10 @@ To use with LM Studio:
 3. **Load the model** in LM Studio's server tab
 4. **Use these settings** in the node:
    - API URL: `http://localhost:1234/api/v1/chat`
-   - Model Name: _(exact name from LM Studio)_
-   - API Key: `lm-studio` (LM Studio doesn't require real API keys)
+   - Model Name: _(exact name from LM Studio, or empty to use the loaded model)_
+   - API Key: leave empty. Put the token in `custom_nodes/scg-utils/.env` (see `.env.example`) or export `SCG_LMSTUDIO_API_KEY` / `LM_API_TOKEN`
+
+If LM Studio server auth is on, every request needs `Authorization: Bearer <token>`, including the loaded-model lookup at `GET /api/v1/models`. A key typed into `api_key` overrides the environment for that run and is stored in the workflow, so use it only to test.
 
 ## Tips
 
@@ -136,8 +138,9 @@ The node does not crop. Many CLIP-style VLM towers (and some llama.cpp mmproj pa
 - Ensure no firewall is blocking the connection
 
 ### "HTTP 401/403" Error
-- Check your API key is correct
-- For LM Studio, the API key can be anything (it's not validated)
+- Check the token against LM Studio's Server Settings
+- Leave the node `api_key` empty and set `SCG_LMSTUDIO_API_KEY` in `custom_nodes/scg-utils/.env`, or export `SCG_LMSTUDIO_API_KEY` or `LM_API_TOKEN` before starting ComfyUI
+- An empty model name lists models first. That request uses the same token as the chat request
 
 ### "HTTP 404" Error
 - Verify the model name matches exactly

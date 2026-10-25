@@ -1,5 +1,6 @@
 import base64
 import json
+import os
 import time
 from io import BytesIO
 from urllib.parse import urlparse
@@ -58,6 +59,8 @@ def pil_to_base64(pil_image: Image.Image, format: str = "PNG") -> str:
 
 
 DEFAULT_API_URL = "http://localhost:1234/api/v1/chat"
+_API_KEY_ENV_NAMES = ("SCG_LMSTUDIO_API_KEY", "LM_API_TOKEN")
+_API_KEY_UNSET = {"", "lm-studio"}
 
 
 def api_origin(url):
@@ -65,8 +68,59 @@ def api_origin(url):
     return f"{parsed.scheme}://{parsed.netloc}"
 
 
-def loaded_lmstudio_model(origin):
-    response = requests.get(f"{origin}/api/v1/models", timeout=10)
+def _dotenv_values(path):
+    values = {}
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            for raw in handle:
+                line = raw.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                key = key.strip()
+                value = value.strip()
+                if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+                    value = value[1:-1]
+                if key:
+                    values[key] = value
+    except OSError:
+        return {}
+    return values
+
+
+def resolve_api_key(api_key):
+    typed = (api_key or "").strip()
+    if typed.lower() not in _API_KEY_UNSET:
+        return typed, "node input"
+    for name in _API_KEY_ENV_NAMES:
+        value = (os.environ.get(name) or "").strip()
+        if value:
+            return value, f"environment {name}"
+    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    file_values = _dotenv_values(env_path)
+    for name in _API_KEY_ENV_NAMES:
+        value = (file_values.get(name) or "").strip()
+        if value:
+            return value, f"{env_path} {name}"
+    return "", ""
+
+
+def request_headers(api_key):
+    headers = {"Content-Type": "application/json"}
+    key, source = resolve_api_key(api_key)
+    if key:
+        headers["Authorization"] = f"Bearer {key}"
+    return headers, source
+
+
+def loaded_lmstudio_model(origin, headers):
+    response = requests.get(f"{origin}/api/v1/models", headers=headers, timeout=10)
+    if response.status_code == 401 and "Authorization" not in headers:
+        raise requests.HTTPError(
+            "401 Unauthorized from LM Studio. Set SCG_LMSTUDIO_API_KEY in custom_nodes/scg-utils/.env "
+            "or export SCG_LMSTUDIO_API_KEY / LM_API_TOKEN. The api_key input overrides that for a one-off test.",
+            response=response,
+        )
     response.raise_for_status()
     for model in response.json().get("models") or []:
         instances = model.get("loaded_instances") or []
@@ -157,7 +211,11 @@ class SCGRemoteLLMVLM_OAI(io.ComfyNode):
             inputs=[
                 io.String.Input("api_url", default=DEFAULT_API_URL),
                 io.String.Input("model_name", default="qwen2-vl-7b-instruct"),
-                io.String.Input("api_key", default="lm-studio"),
+                io.String.Input(
+                    "api_key",
+                    default="",
+                    tooltip="Leave empty to use SCG_LMSTUDIO_API_KEY or LM_API_TOKEN from the environment or custom_nodes/scg-utils/.env. A value here overrides that and is saved in the workflow.",
+                ),
                 io.String.Input(
                     "system_prompt",
                     default="You are a helpful assistant.",
@@ -248,6 +306,9 @@ class SCGRemoteLLMVLM_OAI(io.ComfyNode):
                 print(f"[SCG Remote LLM/VLM] Total images added: {len(image_urls)}")
 
             api_url, api_mode = resolve_api_url(api_url)
+            headers, key_source = request_headers(api_key)
+            if key_source:
+                print(f"[SCG Remote LLM/VLM] Using API key from {key_source}")
 
             payload = {
                 "temperature": temperature,
@@ -269,7 +330,7 @@ class SCGRemoteLLMVLM_OAI(io.ComfyNode):
                 if reasoning and reasoning != "default":
                     payload["reasoning"] = reasoning
                 if not model_name:
-                    loaded = loaded_lmstudio_model(api_origin(api_url))
+                    loaded = loaded_lmstudio_model(api_origin(api_url), headers)
                     if loaded:
                         model_name = loaded
                         print(f"[SCG Remote LLM/VLM] Using loaded model {model_name}")
@@ -286,16 +347,7 @@ class SCGRemoteLLMVLM_OAI(io.ComfyNode):
 
             if model_name:
                 payload["model"] = model_name
-            
-            # Build headers
-            headers = {
-                "Content-Type": "application/json",
-            }
-            
-            # Add API key if provided (some local servers don't require it)
-            if api_key and api_key.strip() and api_key.strip() != "lm-studio":
-                headers["Authorization"] = f"Bearer {api_key}"
-            
+
             print(f"[SCG Remote LLM/VLM] Sending request to {api_url}")
             print(f"[SCG Remote LLM/VLM] Model: {model_name or 'server default'} ({api_mode})")
             print(f"[SCG Remote LLM/VLM] Temperature: {temperature}, Top-p: {top_p}, Max tokens: {max_tokens}, Timeout: {timeout}s, Reasoning: {reasoning}")
